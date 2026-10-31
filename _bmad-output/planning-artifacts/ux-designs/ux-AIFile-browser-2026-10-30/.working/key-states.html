@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Browse and Empty States</title>
+<style>
+/* Key screen: Main window, browse view and empty states.
+   Governing spine sections:
+   - DESIGN.md: Layout & Spacing, Components (File list row, Preview Panel empty state, Empty state,
+     Notice banner, Status bar, Filter chip)
+   - EXPERIENCE.md: Component Patterns (File list, Preview Panel, Status bar, Filter chips),
+     State Patterns (Preview Panel no file selected = EARS-02; No results, no Filters = EARS-03;
+     No results with Filters active; Indexing still running; Status bar first indexing),
+     Key Flows 1 (UJ-1), 2 (failure path) and 4.
+   Spines win on conflict. Light theme only. */
+:root{--bg:#FFFFFF;--pane:#F3F3F3;--primary:#0F6CBD;--sel:#CFE4FA;--info:#EBF3FC;--info-fg:#0F548C;--cm:#FFF4CE;--cm-fg:#7A4D00;--fg:#1B1B1F;--muted:#62626B;--border:#E1E1E6;--r-sm:4px;--r-md:6px;--r-lg:8px}
+*{box-sizing:border-box}
+body{margin:0;background:#E9EBEF;font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;color:var(--fg);font-size:15px;line-height:1.45;padding:24px 16px}
+.caption{max-width:1280px;margin:0 auto 10px;font-size:13px;color:#3a3a40}
+.caption b{font-size:16px;display:block;color:var(--fg)}
+.scroll{overflow-x:auto;margin-bottom:40px;padding-bottom:8px}
+.win{width:1280px;height:640px;margin:0 auto;background:var(--bg);border:1px solid #c9c9cf;border-radius:var(--r-lg);box-shadow:0 8px 28px rgba(0,0,0,.14);display:grid;grid-template-rows:32px 60px 44px minmax(0,1fr) 28px;overflow:hidden}
+.titlebar{display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12px;background:var(--pane);color:var(--muted)}
+.titlebar .ctl{letter-spacing:20px}
+.top{display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--border)}
+.navbtns{display:flex;gap:2px;color:var(--muted);font-size:16px}
+.navbtns span{width:32px;height:32px;display:grid;place-items:center;border-radius:var(--r-sm)}
+.crumbs{font-size:14px;padding:6px 10px;border-radius:var(--r-sm);white-space:nowrap}
+.crumbs i{font-style:normal;color:var(--muted);margin:0 6px}
+.search{flex:1;max-width:640px;margin-inline-start:auto;height:44px;border:1px solid var(--primary);border-radius:var(--r-md);display:flex;align-items:center;gap:10px;padding:0 12px;font-size:18px;line-height:1.3}
+.search.focus{border-width:2px}
+.search .ph{color:var(--muted)}
+.search .x{margin-inline-start:auto;color:var(--muted);font-size:14px}
+.gear{color:var(--muted);width:32px;text-align:center;font-size:18px}
+.filters{display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--border)}
+.chip{font-size:13px;padding:3px 12px;border-radius:9999px;background:var(--pane);border:1px solid var(--border)}
+.chip.on{background:var(--sel);color:var(--info-fg);border-color:#9DC4EE;font-weight:600}
+.body{display:grid;grid-template-columns:240px minmax(0,1fr) 320px;min-height:0}
+.navpane{background:var(--pane);border-inline-end:1px solid var(--border);padding:8px;font-size:14px}
+.navpane h4{font-size:12px;font-weight:600;color:var(--muted);margin:12px 10px 4px;letter-spacing:.02em}
+.navpane div{padding:6px 10px;border-radius:var(--r-sm)}
+.navpane .cur{background:var(--sel)}
+.main{overflow:hidden;padding:4px 16px}
+.preview{background:var(--pane);border-inline-start:1px solid var(--border);padding:16px;overflow:hidden}
+.pv-empty{height:100%;display:grid;place-items:center;color:var(--muted);font-size:15px}
+.status{background:var(--pane);border-top:1px solid var(--border);font-size:12px;display:flex;align-items:center;gap:12px;padding:0 16px;color:var(--muted)}
+.bar{width:180px;height:4px;background:#d6d6dc;border-radius:2px;overflow:hidden}.bar b{display:block;height:100%;width:16%;background:var(--primary)}
+.ico{flex:none;width:22px;height:26px;border-radius:3px;font-size:8px;font-weight:700;color:#fff;display:inline-grid;place-items:center;vertical-align:middle;margin-inline-end:10px}
+.pdf{background:#C4314B}.doc{background:#185ABD}.txt{background:#5C5C66}.img{background:#2E8B57}.fold{background:#E8B931;color:#5a4300}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th{font-size:13px;font-weight:600;color:var(--muted);text-align:start;padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+th.sorted::after{content:" ▾"}
+td{padding:0 10px;height:36px;white-space:nowrap}
+td.m{font-size:13px;color:var(--muted)}
+.notice{background:var(--info);color:var(--info-fg);border-radius:var(--r-md);padding:8px 12px;font-size:14px;margin:10px 0}
+.empty{text-align:center;margin-top:96px}
+.empty svg{display:block;margin:0 auto 12px}
+.empty .msg{font-size:15px}
+.empty .sub{font-size:13px;color:var(--muted);margin-top:4px}
+.btn{display:inline-block;font-size:14px;padding:6px 14px;border:1px solid var(--border);border-radius:var(--r-md);background:#fff;margin:14px 4px 0}
+.note{max-width:1280px;margin:8px auto 0;font-size:12px;color:#55555c}
+</style>
+</head>
+<body>
+
+<div class="caption"><b>1. Browse view, nothing selected, first indexing running (EARS-02, UJ-1)</b>
+The app opened on Documents › Volunteering. No file is selected, so the Preview Panel shows "Select a file to preview". The status bar shows indexing progress.</div>
+<div class="scroll">
+<div class="win">
+  <div class="titlebar"><span>File Browser 2.0</span><span class="ctl">–▢✕</span></div>
+  <div class="top">
+    <div class="navbtns"><span>←</span><span>→</span><span>↑</span></div>
+    <div class="crumbs">Documents<i>›</i>Volunteering</div>
+    <div class="search">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#62626B" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+      <span class="ph">Search by name, or describe what you remember</span>
+    </div>
+    <div class="gear">⚙</div>
+  </div>
+  <div class="filters"><span class="chip">Date ▾</span><span class="chip">Type ▾</span></div>
+  <div class="body">
+    <div class="navpane">
+      <h4>INDEXED FOLDERS</h4><div class="cur">Documents</div><div>Desktop</div>
+      <h4>QUICK ACCESS</h4><div>Documents</div><div>Desktop</div><div>Downloads</div>
+      <h4>THIS PC</h4><div>Local Disk (C:)</div>
+    </div>
+    <div class="main">
+      <table>
+        <tr><th>Name</th><th>Type</th><th>Size</th><th class="sorted">Modified</th></tr>
+        <tr><td><span class="ico fold"></span>Photos</td><td class="m">Folder</td><td class="m"></td><td class="m">Oct 20, 2025</td></tr>
+        <tr><td><span class="ico doc">W</span><bdi>סיכום ישיבה 3.docx</bdi></td><td class="m">Word document</td><td class="m">38 KB</td><td class="m">Oct 14, 2025</td></tr>
+        <tr><td><span class="ico pdf">PDF</span>Class trip budget 2025.pdf</td><td class="m">PDF document</td><td class="m">210 KB</td><td class="m">Oct 2, 2025</td></tr>
+        <tr><td><span class="ico doc">W</span><bdi>סיכום ישיבה 2.docx</bdi></td><td class="m">Word document</td><td class="m">31 KB</td><td class="m">Sep 9, 2025</td></tr>
+        <tr><td><span class="ico img">JPG</span>photo.jpg</td><td class="m">JPEG image</td><td class="m">2.4 MB</td><td class="m">Jun 30, 2025</td></tr>
+        <tr><td><span class="ico txt">TXT</span>phone list.txt</td><td class="m">Text document</td><td class="m">2 KB</td><td class="m">Jan 5, 2025</td></tr>
+      </table>
+    </div>
+    <div class="preview"><div class="pv-empty">Select a file to preview</div></div>
+  </div>
+  <div class="status"><span>Reading your documents: 340 of 2,100</span><span class="bar"><b></b></span></div>
+</div>
+</div>
+
+<div class="caption"><b>2. Search finished, no results, no Filters active (EARS-03, Flow 4)</b>
+"xyz123" returns nothing in either group. The app says so plainly instead of showing unrelated files.</div>
+<div class="scroll">
+<div class="win">
+  <div class="titlebar"><span>File Browser 2.0</span><span class="ctl">–▢✕</span></div>
+  <div class="top">
+    <div class="navbtns"><span>←</span><span>→</span><span>↑</span></div>
+    <div class="crumbs">Documents<i>›</i>Volunteering</div>
+    <div class="search focus">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#62626B" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+      <span>xyz123</span><span class="x">✕</span>
+    </div>
+    <div class="gear">⚙</div>
+  </div>
+  <div class="filters"><span class="chip">Date ▾</span><span class="chip">Type ▾</span></div>
+  <div class="body">
+    <div class="navpane">
+      <h4>INDEXED FOLDERS</h4><div class="cur">Documents</div><div>Desktop</div>
+      <h4>QUICK ACCESS</h4><div>Documents</div><div>Desktop</div><div>Downloads</div>
+      <h4>THIS PC</h4><div>Local Disk (C:)</div>
+    </div>
+    <div class="main">
+      <div class="empty">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#9a9aa2" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+        <div class="msg">No matching files found</div>
+        <div class="sub">Try different words.</div>
+        <span class="btn">Check that the folder is indexed</span>
+      </div>
+    </div>
+    <div class="preview"><div class="pv-empty">Select a file to preview</div></div>
+  </div>
+  <div class="status"><span>Index up to date · 2,100 documents</span></div>
+</div>
+</div>
+
+<div class="caption"><b>3. No results with a Filter active, while indexing still runs (FR-17, FR-13, Flow 2 failure path)</b>
+The message names the active Filter and offers one-click clearing. It is not "No matching files found", because a Filter is active.</div>
+<div class="scroll">
+<div class="win">
+  <div class="titlebar"><span>File Browser 2.0</span><span class="ctl">–▢✕</span></div>
+  <div class="top">
+    <div class="navbtns"><span>←</span><span>→</span><span>↑</span></div>
+    <div class="crumbs">Documents</div>
+    <div class="search focus">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#62626B" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+      <span>parents' committee summary</span><span class="x">✕</span>
+    </div>
+    <div class="gear">⚙</div>
+  </div>
+  <div class="filters"><span class="chip on">Date: Oct 1–31, 2025 &nbsp;✕</span><span class="chip">Type ▾</span></div>
+  <div class="body">
+    <div class="navpane">
+      <h4>INDEXED FOLDERS</h4><div class="cur">Documents</div><div>Desktop</div>
+      <h4>QUICK ACCESS</h4><div>Documents</div><div>Desktop</div><div>Downloads</div>
+      <h4>THIS PC</h4><div>Local Disk (C:)</div>
+    </div>
+    <div class="main">
+      <div class="notice">ⓘ Indexing in progress: results may be incomplete</div>
+      <div class="empty" style="margin-top:64px">
+        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#9a9aa2" stroke-width="1.5"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+        <div class="msg">No matches from Oct 1–31, 2025</div>
+        <span class="btn">Clear date filter</span>
+      </div>
+    </div>
+    <div class="preview"><div class="pv-empty">Select a file to preview</div></div>
+  </div>
+  <div class="status"><span>Reading your documents: 1,180 of 2,100</span><span class="bar"><b style="width:56%"></b></span></div>
+</div>
+</div>
+<p class="note">Mockup only: EXPERIENCE.md and DESIGN.md win on any conflict.</p>
+</body>
+</html>

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>First Run and Index</title>
+<style>
+/* Key screen: First-run folder chooser and Index settings dialog.
+   Governing spine sections:
+   - DESIGN.md: Elevation & Depth (dialogs only), Shapes (rounded.lg dialogs), Components (Folder chooser, Button primary)
+   - EXPERIENCE.md: Information Architecture (First-run folder chooser, Index settings), Component Patterns
+     (Folder chooser, Index settings), Voice and Tone, Key Flow 1 (UJ-1) steps 1-2 and failure path.
+   Spines win on conflict. Light theme only. */
+:root{--bg:#FFFFFF;--pane:#F3F3F3;--primary:#0F6CBD;--sel:#CFE4FA;--fg:#1B1B1F;--muted:#62626B;--border:#E1E1E6;--danger:#C42B1C;--r-sm:4px;--r-md:6px;--r-lg:8px}
+*{box-sizing:border-box}
+body{margin:0;background:#E9EBEF;font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;color:var(--fg);font-size:15px;line-height:1.45;padding:24px 16px}
+.caption{max-width:1280px;margin:0 auto 10px;font-size:13px;color:#3a3a40}
+.caption b{font-size:16px;display:block;color:var(--fg)}
+.scroll{overflow-x:auto;margin-bottom:40px;padding-bottom:8px}
+.win{width:1280px;height:640px;margin:0 auto;border:1px solid #c9c9cf;border-radius:var(--r-lg);box-shadow:0 8px 28px rgba(0,0,0,.14);overflow:hidden;position:relative;background:var(--bg)}
+.titlebar{height:32px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12px;background:var(--pane);color:var(--muted)}
+.titlebar .ctl{letter-spacing:20px}
+.ghost{position:absolute;inset:32px 0 0 0;background:linear-gradient(var(--bg) 0 60px,var(--border) 60px 61px,var(--bg) 61px 104px,var(--border) 104px 105px,transparent 105px),linear-gradient(90deg,var(--pane) 0 240px,var(--bg) 240px 960px,var(--pane) 960px)}
+.scrim{position:absolute;inset:32px 0 0 0;background:rgba(0,0,0,.32);display:grid;place-items:center}
+.dialog{width:560px;background:var(--bg);border-radius:var(--r-lg);box-shadow:0 16px 48px rgba(0,0,0,.28);padding:24px}
+.dialog.wide{width:680px}
+h2{font-family:'Segoe UI Variable Display','Segoe UI',sans-serif;font-size:20px;font-weight:600;line-height:1.25;margin:0 0 6px}
+.lead{font-size:15px;color:var(--muted);margin:0 0 16px}
+.list{border:1px solid var(--border);border-radius:var(--r-md)}
+.item{display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid var(--border)}
+.item:last-child{border-bottom:none}
+.cb{width:18px;height:18px;border-radius:4px;border:1px solid #8a8a92;display:grid;place-items:center;font-size:13px;color:#fff;flex:none}
+.cb.on{background:var(--primary);border-color:var(--primary)}
+.path{font-size:13px;color:var(--muted)}
+.btn{display:inline-block;font-size:14px;padding:6px 16px;border:1px solid var(--border);border-radius:var(--r-md);background:#fff}
+.btn.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
+.btn.link{border:none;color:var(--primary);padding:6px 0;background:none}
+.btn.danger{color:var(--danger)}
+.foot{display:flex;align-items:center;gap:8px;margin-top:20px}
+.foot .end{margin-inline-start:auto;display:flex;gap:8px}
+.privacy{font-size:13px;color:var(--muted);margin-top:12px;display:flex;gap:6px;align-items:center}
+.stats{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:14px;margin:12px 0 16px}
+.stats span:nth-child(odd){color:var(--muted)}
+h3{font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.02em;margin:16px 0 6px}
+.mini{font-size:13px}
+.mini .item{padding:6px 12px}
+.right{margin-inline-start:auto;font-size:13px;color:var(--muted)}
+.note{max-width:1280px;margin:8px auto 0;font-size:12px;color:#55555c}
+</style>
+</head>
+<body>
+
+<div class="caption"><b>1. First launch: folder chooser (FR-7, UJ-1 / Flow 1 step 1)</b>
+Documents and Desktop are pre-checked. Nothing is read until Yossi presses Start. "Skip for now" keeps browsing and name search working.</div>
+<div class="scroll">
+<div class="win">
+  <div class="titlebar"><span>File Browser 2.0</span><span class="ctl">–▢✕</span></div>
+  <div class="ghost"></div>
+  <div class="scrim">
+    <div class="dialog">
+      <h2>Which folders should I search inside?</h2>
+      <p class="lead">I'll read the documents in these folders so you can find them by what they're about.</p>
+      <div class="list">
+        <div class="item"><span class="cb on">✓</span><div><div>Documents</div><div class="path">C:\Users\Yossi\Documents</div></div></div>
+        <div class="item"><span class="cb on">✓</span><div><div>Desktop</div><div class="path">C:\Users\Yossi\Desktop</div></div></div>
+        <div class="item"><span class="cb"></span><div><div>Downloads</div><div class="path">C:\Users\Yossi\Downloads</div></div></div>
+      </div>
+      <div class="privacy">🔒 Your files stay on this computer.</div>
+      <div class="foot">
+        <span class="btn link">+ Add folder…</span>
+        <div class="end"><span class="btn">Skip for now</span><span class="btn primary">Start</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="caption"><b>2. Index settings (FR-7, FR-10, FR-11)</b>
+Opened from the gear or the status bar. Shows what is indexed, what was skipped and why, and unsupported files counted by extension.</div>
+<div class="scroll">
+<div class="win">
+  <div class="titlebar"><span>File Browser 2.0</span><span class="ctl">–▢✕</span></div>
+  <div class="ghost"></div>
+  <div class="scrim">
+    <div class="dialog wide">
+      <h2>Index settings</h2>
+      <div class="stats">
+        <span>Documents indexed</span><span>2,100</span>
+        <span>Last update</span><span>Today, 9:14 AM</span>
+      </div>
+      <h3>INDEXED FOLDERS</h3>
+      <div class="list mini">
+        <div class="item"><div>Documents <span class="path">C:\Users\Yossi\Documents</span></div><span class="right btn">Remove</span></div>
+        <div class="item"><div>Desktop <span class="path">C:\Users\Yossi\Desktop</span></div><span class="right btn">Remove</span></div>
+      </div>
+      <span class="btn link">+ Add folder…</span>
+      <h3>SKIPPED FILES (3)</h3>
+      <div class="list mini">
+        <div class="item">scan-pension-letter.pdf<span class="right">Scanned or image-only PDF</span></div>
+        <div class="item">tax-2024.pdf<span class="right">Password-protected</span></div>
+        <div class="item">Trip photos list.docx<span class="right">Stored only in OneDrive</span></div>
+      </div>
+      <h3>NOT SUPPORTED FOR CONTENT SEARCH (still found by name)</h3>
+      <div class="mini" style="color:var(--muted)">.doc: 214 · .xlsx: 57 · .pptx: 12</div>
+      <div class="foot">
+        <span class="btn">Delete index data</span><span class="btn">Rebuild index</span>
+        <div class="end"><span class="btn">Close</span><span class="btn primary">Update index</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+<p class="note">Mockup only: EXPERIENCE.md and DESIGN.md win on any conflict.</p>
+</body>
+</html>

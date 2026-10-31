@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PRD Validation: File Browser 2.0</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --muted: #78716c;
+
+    --verdict-strong: #16a34a;
+    --verdict-adequate: #65a30d;
+    --verdict-thin: #d97706;
+    --verdict-broken: #dc2626;
+
+    --sev-low: #64748b;
+    --sev-medium: #ca8a04;
+    --sev-high: #ea580c;
+    --sev-critical: #dc2626;
+
+    --grade-exc: #16a34a;
+    --grade-good: #65a30d;
+    --grade-fair: #d97706;
+    --grade-poor: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 15px;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  header.report-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .title .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .grade {
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-weight: 600;
+    color: white;
+    font-size: 15px;
+    white-space: nowrap;
+  }
+  .grade-excellent { background: var(--grade-exc); }
+  .grade-good { background: var(--grade-good); }
+  .grade-fair { background: var(--grade-fair); }
+  .grade-poor { background: var(--grade-poor); }
+
+  .synthesis {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+    font-size: 15.5px;
+  }
+  .synthesis p { margin: 0 0 10px; }
+  .synthesis p:last-child { margin-bottom: 0; }
+
+  .dimension-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .dim-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .dim-card .dim-name { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .dim-card .dim-verdict { font-size: 14px; font-weight: 600; }
+
+  section.dimension, section.reviewer-section { margin-bottom: 14px; }
+  section.dimension details, section.reviewer-section details {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  section summary {
+    padding: 14px 20px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  section summary::-webkit-details-marker { display: none; }
+  section summary::before {
+    content: "▸";
+    display: inline-block;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+  section details[open] summary::before { transform: rotate(90deg); }
+  section summary h2 {
+    display: inline;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    flex: 1;
+  }
+  .verdict-pill {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: white;
+  }
+  .verdict-strong { background: var(--verdict-strong); }
+  .verdict-adequate { background: var(--verdict-adequate); }
+  .verdict-thin { background: var(--verdict-thin); }
+  .verdict-broken { background: var(--verdict-broken); }
+
+  .dim-body { padding: 4px 20px 18px; }
+  .dim-judgment { color: var(--text); font-size: 14.5px; }
+  .dim-judgment p { margin: 0 0 10px; }
+
+  .findings-list { padding: 0 20px 4px; }
+  article.finding {
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  article.finding:first-child { border-top: none; }
+  article.finding header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .badge {
+    font-size: 10.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+  }
+  .badge-sev-low { background: rgba(100, 116, 139, 0.12); color: var(--sev-low); }
+  .badge-sev-medium { background: rgba(202, 138, 4, 0.14); color: var(--sev-medium); }
+  .badge-sev-high { background: rgba(234, 88, 12, 0.14); color: var(--sev-high); }
+  .badge-sev-critical { background: rgba(220, 38, 38, 0.14); color: var(--sev-critical); }
+  .finding-title { margin: 0; font-size: 15px; font-weight: 500; flex: 1; min-width: 200px; }
+  .finding-location { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--muted); }
+  .finding-note, .finding-fix { margin-top: 6px; font-size: 14px; }
+  .finding-fix strong { color: var(--muted); font-weight: 500; }
+
+  .reviewer-source {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  .mechanical {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 24px;
+    font-size: 14px;
+  }
+  .mechanical h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .mechanical ul { margin: 0; padding-left: 20px; }
+  .mechanical li { margin-bottom: 4px; color: var(--text); }
+
+  footer.report-footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  footer .meta { display: flex; gap: 24px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <header class="report-header">
+      <div class="title">
+        <h1>PRD: File Browser 2.0 (revision 2) — Validation Report</h1>
+        <div class="subtitle">_bmad-output/planning-artifacts/prds/prd-AIFile-browser-2026-10-26/prd.md</div>
+      </div>
+      <div class="grade grade-fair">Fair</div>
+    </header>
+    <div class="synthesis">
+      <p>The PRD is ready for the architecture phase: a clear thesis, recorded author decisions, five incremental phases with exit criteria, and rule-based Date Phrases in MVP scope everywhere. The risks are FR interactions around Date Phrases and Filters, and Windows 11 conditions the PRD didn't mention (OneDrive placeholders, unsigned installer, WebView2 traffic). No critical findings; three high, all needing an author decision.</p>
+      <p>Every finding that needed no product decision has been fixed in prd.md and addendum.md. The author accepted all ten suggested decisions on 2026-10-28; they are written into the PRD (§12.7), so every "Decision" item below is resolved. Still open: the three Exercise 6 EARS requirements are not in the PRD. Grade reflects the reviewed state before fixes.</p>
+    </div>
+    <div class="dimension-summary">
+      <div class="dim-card"><div class="dim-name">Decision-readiness</div><div class="dim-verdict" style="color: var(--verdict-strong)">strong</div></div>
+      <div class="dim-card"><div class="dim-name">Substance over theater</div><div class="dim-verdict" style="color: var(--verdict-strong)">strong</div></div>
+      <div class="dim-card"><div class="dim-name">Strategic coherence</div><div class="dim-verdict" style="color: var(--verdict-strong)">strong</div></div>
+      <div class="dim-card"><div class="dim-name">Done-ness clarity</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div></div>
+      <div class="dim-card"><div class="dim-name">Scope honesty</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div></div>
+      <div class="dim-card"><div class="dim-name">Downstream usability</div><div class="dim-verdict" style="color: var(--verdict-strong)">strong</div></div>
+      <div class="dim-card"><div class="dim-name">Shape fit</div><div class="dim-verdict" style="color: var(--verdict-strong)">strong</div></div>
+    </div>
+    <section class="dimension">
+      <details>
+        <summary><h2>Decision-readiness</h2><span class="verdict-pill verdict-strong">strong</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Decisions are written as decisions. C-1 states its own reopening condition, C-5 fixes the stack, and C-6 sets the rule for performance work. Counter-metrics answer the obvious objections ahead of time.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">No priority order if one model can&#x27;t meet every constraint</h3>
+              <span class="finding-location">§10 Q5, C-3, NFR-7, SM-1</span>
+            </header>
+            <div class="finding-note">Decision: PRD §10 question 10.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Rank the constraints, for example license and offline first, then SM-1, then NFR-7, then speed.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary><h2>Substance over theater</h2><span class="verdict-pill verdict-strong">strong</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Each user journey drives specific requirements, the vision is specific to this product, and every NFR has a number or a verification method.</p></div></div>
+        <div class="findings-list">
+
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary><h2>Strategic coherence</h2><span class="verdict-pill verdict-strong">strong</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>The five phases build on each other, each has a demonstrable exit criterion, and every Depends on link points to the same or an earlier phase.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">SM-1 test collection size undefined</h3>
+              <span class="finding-location">§9 SM-1</span>
+            </header>
+            <div class="finding-note">Decision: PRD §10 question 11.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Set a minimum size and makeup, for example ≥ 500 mixed Hebrew/English documents with near-duplicate distractors.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Installer size unchecked until Phase 5</h3>
+              <span class="finding-location">§8.3 Phase 3</span>
+            </header>
+            <div class="finding-note">Fixed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Phase 3 exit records the packaged backend and model size against NFR-7.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">RTL layout had no Phase 1 guardrail</h3>
+              <span class="finding-location">§8.3, FR-18</span>
+            </header>
+            <div class="finding-note">Fixed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Addendum note: direction-neutral styling from Phase 1.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary><h2>Done-ness clarity</h2><span class="verdict-pill verdict-adequate">adequate</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Most FRs have concrete, checkable criteria. The weak spots were where FRs interact (Date Phrase, Date Filter, re-run) and unbounded adjectives.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Clearing a phrase-set Date Filter may re-apply it</h3>
+              <span class="finding-location">FR-14, FR-15, FR-17, UJ-2</span>
+            </header>
+            <div class="finding-note">Decision: PRD §10 question 6.</div>
+            <div class="finding-fix"><strong>Fix:</strong> State that a recognized phrase becomes the filter and isn&#x27;t re-recognized; clearing returns it to query text.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">FR-14 Relative row contradicted itself</h3>
+              <span class="finding-location">FR-14, FR-15</span>
+            </header>
+            <div class="finding-note">Fixed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Split into Relative day and Relative period; presets use FR-14 definitions.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Numeric dates and cross-month ranges unspecified</h3>
+              <span class="finding-location">FR-14</span>
+            </header>
+            <div class="finding-note">Decision: PRD §10 question 13.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Say whether D/M/Y numeric dates and cross-month ranges are recognized.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Search Bar trigger, scope and start folder undefined</h3>
+              <span class="finding-location">FR-5, FR-12, UJ-1</span>
+            </header>
+            <div class="finding-note">Decision: PRD §10 question 12.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Define trigger, each group&#x27;s scope, the start folder, and the text used for Filename Search.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">&quot;Display correctly&quot; untestable</h3>
+              <span class="finding-location">FR-1, FR-6, FR-18</span>
+            </header>
+            <div class="finding-note">Fixed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> New Glossary term Correct Display with a fixture list and reference screenshots.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Close Match threshold, result cap, empty-result action</h3>
+              <span class="finding-location">FR-17, SM-C1</span>
+            </header>
+            <div class="finding-note">Fixed (threshold, clear active Filters). Decision for result cap: §10 question 14.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Tune the threshold on SM-1; cap the list.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">How the 6-second targets are measured</h3>
+              <span class="finding-location">NFR-2, NFR-3, SM-2</span>
+            </header>
+            <div class="finding-note">Decision: PRD §10 question 14.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Define start/end points, warm or cold, percentile.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">FR-14 test list had no required contents</h3>
+              <span class="finding-location">FR-14</span>
+            </header>
+            <div class="finding-note">Fixed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> List must include every example plus negative cases.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Type Filter extension mapping</h3>
+              <span class="finding-location">FR-15</span>
+            </header>
+            <div class="finding-note">Decision: PRD §10 question 15.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add an extension table.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary><h2>Scope honesty</h2><span class="verdict-pill verdict-adequate">adequate</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>§7, §8.2 and §12 do real work, and the assumption tags matched the index. Missing were silent assumptions about the Windows 11 environment.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">OneDrive online-only files</h3>
+              <span class="finding-location">FR-7, FR-8, NFR-1</span>
+            </header>
+            <div class="finding-note">Decision: PRD §10 question 7.</div>
+            <div class="finding-fix"><strong>Fix:</strong> For example: don&#x27;t download placeholders; skip them with a reason.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Unsigned installer warnings or blocking</h3>
+              <span class="finding-location">FR-19, SM-5, Phase 5</span>
+            </header>
+            <div class="finding-note">Decision: PRD §10 question 8.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Choose code signing or documented SmartScreen steps; say whether SM-5 allows them.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">Zero-connection boundary (WebView2, opened apps, OS)</h3>
+              <span class="finding-location">NFR-1, SM-4</span>
+            </header>
+            <div class="finding-note">Decision: PRD §10 question 9. Risk note added to addendum.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Define what counts as the app.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">.doc and unsupported files disappear silently</h3>
+              <span class="finding-location">FR-8, FR-11, §8.2</span>
+            </header>
+            <div class="finding-note">Fixed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> FR-11 counts unsupported files by extension; .doc named in §8.2.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Confirmed items still tagged [ASSUMPTION]</h3>
+              <span class="finding-location">§11</span>
+            </header>
+            <div class="finding-note">Fixed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Tags removed; confirmed items listed.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">§7 heading seemed to contradict FR-14</h3>
+              <span class="finding-location">§7</span>
+            </header>
+            <div class="finding-note">Fixed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Renamed &quot;Only fixed Date Phrases&quot;.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Interface language can&#x27;t be changed by hand</h3>
+              <span class="finding-location">FR-18</span>
+            </header>
+            <div class="finding-note">Decision: PRD §10 question 15.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Optional language setting.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary><h2>Downstream usability</h2><span class="verdict-pill verdict-strong">strong</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>IDs are contiguous and unique, every FR carries Phase and Depends on, and the revision 1 to revision 2 mapping is complete.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">UJ-1 indexing notice had no FR; FR-9 had a Phase 4 criterion</h3>
+              <span class="finding-location">FR-9, FR-13</span>
+            </header>
+            <div class="finding-note">Fixed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Moved into FR-13.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Embedding and Baseline PC not in Glossary</h3>
+              <span class="finding-location">§3</span>
+            </header>
+            <div class="finding-note">Fixed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Glossary entries added.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="dimension">
+      <details>
+        <summary><h2>Shape fit</h2><span class="verdict-pill verdict-strong">strong</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Shape fits a solo portfolio project at the head of a planning chain.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">Length about 4× the 2-page target</h3>
+              <span class="finding-location">§12</span>
+            </header>
+            <div class="finding-note">Kept on purpose: the author asked for removed, simplified and deferred items in the PRD.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Optionally move §12 to the addendum.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <section class="reviewer-section">
+      <details>
+        <summary><h2>Structure and prose review</h2><span class="reviewer-source">review-structure-prose.md</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Pass with revisions. Both documents are well built; the issues were wording, not structure. 32 findings: 3 high, 10 medium, 15 low, 4 keep-or-question.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">&quot;Version 2&quot;, &quot;V2&quot; and &quot;2.0&quot; meant three things</h3>
+              <span class="finding-location">§0, §8.2, §12</span>
+            </header>
+            <div class="finding-note">Fixed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> &quot;PRD revision 2&quot; and &quot;post-MVP&quot;.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Non-goals overlapped with deferred items</h3>
+              <span class="finding-location">§7, §8.2</span>
+            </header>
+            <div class="finding-note">Fixed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> §7 scoped to the MVP; §8.2 is a status table.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-high">high</span>
+              <h3 class="finding-title">Acronyms and AI terms unexplained</h3>
+              <span class="finding-location">§0, §1</span>
+            </header>
+            <div class="finding-note">Fixed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Spelled out at first use.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-medium">medium</span>
+              <h3 class="finding-title">9 more medium items (Glossary drift, FR-17 and FR-10 wording, §0 order, §12.5 table, OQ2 note, addendum preamble, §8.2 wording)</h3>
+              <span class="finding-location">prd.md, addendum.md</span>
+            </header>
+            <div class="finding-note">Fixed.</div>
+            <div class="finding-fix"><strong>Fix:</strong> See review-structure-prose.md.</div>
+          </article>
+          <article class="finding">
+            <header>
+              <span class="badge badge-sev-low">low</span>
+              <h3 class="finding-title">15 low polish items</h3>
+              <span class="finding-location">prd.md, addendum.md</span>
+            </header>
+            <div class="finding-note">14 fixed; serial comma not applied.</div>
+            <div class="finding-fix"><strong>Fix:</strong> See review-structure-prose.md.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+    <div class="mechanical">
+      <h3>Checks and mechanical notes</h3>
+      <ul>
+        <li>FRs clear, testable, consistent: pass after fixes; open behaviors in §10 Q6, Q12–Q14.</li>
+        <li>Understandable to non-technical stakeholders: pass after fixes.</li>
+        <li>Technology constraints consistent with MVP goals: pass; WebView2 boundary open (§10 Q9).</li>
+        <li>Natural-language date parsing in MVP: confirmed (FR-14, rule-based).</li>
+        <li>Five phases incremental and testable: confirmed.</li>
+        <li>Exercise 6 EARS requirements: not found in the PRD or project; nothing invented.</li>
+        <li>IDs contiguous; FR-15 now depends on FR-12; §12.1 and §12.5 agree on rev 1 FR-17; 10 assumption tags match 10 index entries.</li>
+      </ul>
+    </div>
+    <footer class="report-footer">
+      <div class="meta">
+        <span>Rubric: .claude/skills/bmad-prd/assets/prd-validation-checklist.md</span>
+        <span>Generated: 2026-10-28</span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

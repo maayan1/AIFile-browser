@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Search View Mockup</title>
+<style>
+/* Key screen: Main window, search view.
+   Governing spine sections:
+   - DESIGN.md: Colors, Typography, Layout & Spacing, Components (Search Bar, Filter chip,
+     Result group header, Content result row, Close Match label, Preview Panel, Status bar)
+   - EXPERIENCE.md: Component Patterns (Search Bar, Filter chips, Result List, Content result row,
+     Preview Panel), State Patterns (Close Matches present), Bidirectional Text and RTL,
+     Key Flows 2 (UJ-2) and 3 (UJ-3).
+   Spines win on conflict. Light theme only. Hebrew strings are placeholders until the author's translations. */
+:root{--bg:#FFFFFF;--pane:#F3F3F3;--primary:#0F6CBD;--sel:#CFE4FA;--info:#EBF3FC;--info-fg:#0F548C;--cm:#FFF4CE;--cm-fg:#7A4D00;--fg:#1B1B1F;--muted:#62626B;--border:#E1E1E6;--r-sm:4px;--r-md:6px;--r-lg:8px}
+*{box-sizing:border-box}
+body{margin:0;background:#E9EBEF;font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;color:var(--fg);font-size:15px;line-height:1.45;padding:24px 16px}
+.caption{max-width:1280px;margin:0 auto 10px;font-size:13px;color:#3a3a40}
+.caption b{font-size:16px;display:block;color:var(--fg)}
+.scroll{overflow-x:auto;margin-bottom:40px;padding-bottom:8px}
+.win{width:1280px;height:720px;margin:0 auto;background:var(--bg);border:1px solid #c9c9cf;border-radius:var(--r-lg);box-shadow:0 8px 28px rgba(0,0,0,.14);display:grid;grid-template-rows:32px 60px 44px minmax(0,1fr) 28px;overflow:hidden}
+.titlebar{display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12px;background:var(--pane);color:var(--muted)}
+.titlebar .ctl{letter-spacing:20px;direction:ltr}
+.top{display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--border)}
+.navbtns{display:flex;gap:2px;color:var(--muted);font-size:16px}
+.navbtns span{width:32px;height:32px;display:grid;place-items:center;border-radius:var(--r-sm)}
+.crumbs{font-size:14px;padding:6px 10px;border-radius:var(--r-sm);white-space:nowrap}
+.crumbs i{font-style:normal;color:var(--muted);margin:0 6px}
+.search{flex:1;max-width:640px;margin-inline-start:auto;height:44px;border:2px solid var(--primary);border-radius:var(--r-md);display:flex;align-items:center;gap:10px;padding:0 12px;font-size:18px;line-height:1.3}
+.search svg{flex:none}
+.search .ph{color:var(--muted)}
+.search .x{margin-inline-start:auto;color:var(--muted);font-size:14px}
+.gear{color:var(--muted);width:32px;text-align:center;font-size:18px}
+.filters{display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--border)}
+.chip{font-size:13px;padding:3px 12px;border-radius:9999px;background:var(--pane);border:1px solid var(--border)}
+.chip.on{background:var(--sel);color:var(--info-fg);border-color:#9DC4EE;font-weight:600}
+.body{display:grid;grid-template-columns:240px minmax(0,1fr) 320px;min-height:0}
+.navpane{background:var(--pane);border-inline-end:1px solid var(--border);padding:8px;font-size:14px}
+.navpane h4{font-size:12px;font-weight:600;color:var(--muted);margin:12px 10px 4px;letter-spacing:.02em}
+.navpane div{padding:6px 10px;border-radius:var(--r-sm)}
+.navpane .cur{background:var(--sel)}
+.main{overflow:hidden;padding:4px 16px}
+.preview{background:var(--pane);border-inline-start:1px solid var(--border);padding:16px;overflow:hidden}
+.status{background:var(--pane);border-top:1px solid var(--border);font-size:12px;display:flex;align-items:center;gap:12px;padding:0 16px;color:var(--muted)}
+.group{font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.02em;margin:12px 0 4px}
+.row{display:flex;gap:12px;padding:8px 10px;border-radius:var(--r-sm);min-height:36px}
+.row.sel{background:var(--sel);outline:2px solid var(--primary);outline-offset:-2px}
+.ico{flex:none;width:28px;height:34px;border-radius:3px;font-size:9px;font-weight:700;color:#fff;display:grid;place-items:center;direction:ltr}
+.pdf{background:#C4314B}.doc{background:#185ABD}
+.name{font-size:15px}
+.meta{font-size:13px;color:var(--muted)}
+.ex{font-size:14px;line-height:1.5;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tag{display:inline-block;font-size:12px;color:var(--muted);border:1px solid var(--border);border-radius:var(--r-sm);padding:0 6px;margin-top:4px;margin-inline-end:4px;background:#fff}
+.cm{background:var(--cm);color:var(--cm-fg);font-size:12px;font-weight:600;border-radius:var(--r-sm);padding:1px 6px;margin-inline-start:8px}
+.pv-title{font-family:'Segoe UI Variable Display','Segoe UI',sans-serif;font-size:20px;font-weight:600;line-height:1.25;margin:10px 0 8px;word-break:break-word}
+.pv-meta{font-size:13px;color:var(--muted);display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin-bottom:12px}
+.pv-meta span:nth-child(even){color:var(--fg)}
+.pv-text{font-size:14px;line-height:1.5;background:var(--bg);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;height:360px;overflow:hidden}
+bdi{unicode-bidi:isolate}
+.note{max-width:1280px;margin:8px auto 0;font-size:12px;color:#55555c}
+</style>
+</head>
+<body>
+
+<div class="caption"><b>1. Search view, English: Michael (UJ-3, Flow 3)</b>
+Date Phrase turned into the Date chip, Type Filter set to PDF, both groups, two Close Matches, first content match selected and shown in the Preview Panel.</div>
+<div class="scroll">
+<div class="win">
+  <div class="titlebar"><span>File Browser 2.0</span><span class="ctl">–▢✕</span></div>
+  <div class="top">
+    <div class="navbtns"><span>←</span><span>→</span><span>↑</span></div>
+    <div class="crumbs">Documents</div>
+    <div class="search">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#62626B" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+      <span>user permission management</span><span class="x">✕</span>
+    </div>
+    <div class="gear">⚙</div>
+  </div>
+  <div class="filters">
+    <span class="chip on">Date: Jan 10–20, 2026 &nbsp;✕</span>
+    <span class="chip on">Type: PDF &nbsp;✕</span>
+  </div>
+  <div class="body">
+    <div class="navpane">
+      <h4>INDEXED FOLDERS</h4>
+      <div class="cur">Documents</div><div>Desktop</div>
+      <h4>QUICK ACCESS</h4>
+      <div>Documents</div><div>Desktop</div><div>Downloads</div>
+      <h4>THIS PC</h4>
+      <div>Local Disk (C:)</div>
+    </div>
+    <div class="main">
+      <div class="group">Name matches (1)</div>
+      <div class="row"><div class="ico pdf">PDF</div><div>
+        <div class="name">User permission management v2.pdf</div>
+        <div class="meta">Documents › Projects › Acme › Specs · Mar 3, 2026</div></div></div>
+
+      <div class="group">Content matches (4)</div>
+      <div class="row sel"><div class="ico pdf">PDF</div><div>
+        <div class="name">acme-access-control-design.pdf</div>
+        <div class="meta">Documents › Projects › Acme › Design · Jan 14, 2026</div>
+        <div class="ex">…roles are assigned per workspace, and an admin can grant or revoke access for each member. Guests see only the boards they were invited to…</div>
+        <span class="tag">Modified Jan 2026</span><span class="tag">PDF</span></div></div>
+      <div class="row"><div class="ico pdf">PDF</div><div>
+        <div class="name">onboarding-roles-matrix.pdf</div>
+        <div class="meta">Documents › Clients › Northwind · Jan 12, 2026</div>
+        <div class="ex">…new employees get the Viewer role by default; team leads can raise a member to Editor or Admin from the settings page…</div>
+        <span class="tag">Modified Jan 2026</span><span class="tag">PDF</span></div></div>
+      <div class="row"><div class="ico pdf">PDF</div><div>
+        <div class="name">client-meeting-notes-jan.pdf<span class="cm">Close match</span></div>
+        <div class="meta">Documents › Clients › Northwind · Jan 18, 2026</div>
+        <div class="ex">…agreed to review who can export reports before the next release…</div>
+        <span class="tag">Modified Jan 2026</span><span class="tag">PDF</span></div></div>
+      <div class="row"><div class="ico pdf">PDF</div><div>
+        <div class="name">security-review-checklist.pdf<span class="cm">Close match</span></div>
+        <div class="meta">Documents › Templates · Jan 11, 2026</div>
+        <div class="ex">…check password rules, session timeout and audit log retention…</div>
+        <span class="tag">Modified Jan 2026</span><span class="tag">PDF</span></div></div>
+    </div>
+    <div class="preview">
+      <div class="ico pdf" style="width:36px;height:44px;font-size:11px">PDF</div>
+      <div class="pv-title">acme-access-control-design.pdf</div>
+      <div class="pv-meta">
+        <span>Location</span><span>Documents › Projects › Acme › Design</span>
+        <span>Type</span><span>PDF document</span>
+        <span>Size</span><span>412 KB</span>
+        <span>Modified</span><span>Jan 14, 2026, 4:32 PM</span>
+      </div>
+      <div class="pv-text"><b>Acme Workspace: Access Control Design</b><br><br>1. Goals<br>Each workspace has members with one of three roles: Viewer, Editor and Admin. Roles are assigned per workspace, and an admin can grant or revoke access for each member.<br><br>2. Guests<br>Guests see only the boards they were invited to. They can't create boards or invite others.<br><br>3. Audit<br>Every role change is recorded with the time and the admin who made it…</div>
+    </div>
+  </div>
+  <div class="status"><span>Index up to date · 4,820 documents</span></div>
+</div>
+</div>
+
+<div class="caption" dir="rtl" style="text-align:right"><b>2. תצוגת חיפוש, עברית (RTL): דנה (UJ-2, Flow 2)</b>
+כל הפריסה מתהפכת: חלונית הניווט מימין וה-Preview Panel משמאל. שמות קבצים ונתיבים מעורבים נשארים בכיוון שלהם, והסיומת תמיד בסוף.</div>
+<div class="scroll">
+<div class="win" dir="rtl" lang="he">
+  <div class="titlebar"><span>File Browser 2.0</span><span class="ctl">–▢✕</span></div>
+  <div class="top">
+    <div class="navbtns"><span>→</span><span>←</span><span>↑</span></div>
+    <div class="crumbs">מסמכים</div>
+    <div class="search">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#62626B" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+      <span>סיכום ועד ההורים</span><span class="x">✕</span>
+    </div>
+    <div class="gear">⚙</div>
+  </div>
+  <div class="filters">
+    <span class="chip on">תאריך: 1–31 באוק׳ 2025 &nbsp;✕</span>
+    <span class="chip">סוג ▾</span>
+  </div>
+  <div class="body">
+    <div class="navpane">
+      <h4>תיקיות באינדקס</h4>
+      <div class="cur">מסמכים</div><div>שולחן העבודה</div>
+      <h4>גישה מהירה</h4>
+      <div>מסמכים</div><div>שולחן העבודה</div><div>הורדות</div>
+      <h4>מחשב זה</h4>
+      <div>דיסק מקומי (C:)</div>
+    </div>
+    <div class="main">
+      <div class="group">התאמות בשם (1)</div>
+      <div class="row"><div class="ico doc">W</div><div>
+        <div class="name"><bdi>סיכום ועד ההורים - יוני 2025.docx</bdi></div>
+        <div class="meta"><bdi>מסמכים</bdi> › <bdi>Volunteering</bdi> · 22 ביוני 2025</div></div></div>
+
+      <div class="group">התאמות בתוכן (3)</div>
+      <div class="row sel"><div class="ico doc">W</div><div>
+        <div class="name"><bdi>סיכום ישיבה 3.docx</bdi></div>
+        <div class="meta"><bdi>מסמכים</bdi> › <bdi>Volunteering</bdi> · 14 באוק׳ 2025</div>
+        <div class="ex">…תקציב הטיול השנתי של הכיתה אושר על ידי ועד ההורים, והגבייה תתחיל בנובמבר…</div>
+        <span class="tag">שונה באוק׳ 2025</span></div></div>
+      <div class="row"><div class="ico pdf">PDF</div><div>
+        <div class="name"><bdi>Parents committee minutes Oct-2025.pdf</bdi></div>
+        <div class="meta"><bdi>מסמכים</bdi> › <bdi>School</bdi> · 29 באוק׳ 2025</div>
+        <div class="ex"><bdi>…the committee approved the budget for the end-of-year party and the class trip…</bdi></div>
+        <span class="tag">שונה באוק׳ 2025</span></div></div>
+      <div class="row"><div class="ico doc">W</div><div>
+        <div class="name"><bdi>הערות לפגישה עם המנהלת.docx</bdi><span class="cm">התאמה חלקית</span></div>
+        <div class="meta"><bdi>שולחן העבודה</bdi> · 3 באוק׳ 2025</div>
+        <div class="ex">…לשאול על לוח הזמנים של אסיפת ההורים הבאה…</div>
+        <span class="tag">שונה באוק׳ 2025</span></div></div>
+    </div>
+    <div class="preview">
+      <div class="ico doc" style="width:36px;height:44px;font-size:13px">W</div>
+      <div class="pv-title"><bdi>סיכום ישיבה 3.docx</bdi></div>
+      <div class="pv-meta">
+        <span>מיקום</span><span><bdi>מסמכים</bdi> › <bdi>Volunteering</bdi></span>
+        <span>סוג</span><span>מסמך Word</span>
+        <span>גודל</span><span><bdi>38 KB</bdi></span>
+        <span>שונה</span><span>14 באוק׳ 2025, 21:10</span>
+      </div>
+      <div class="pv-text"><b>סיכום ישיבת ועד ההורים מס׳ 3</b><br><br>נוכחים: דנה, אורית, משה ורונן.<br><br>1. טיול שנתי: תקציב הטיול השנתי של הכיתה אושר על ידי ועד ההורים, והגבייה תתחיל בנובמבר. היעד: <bdi>Ein Gedi</bdi>.<br><br>2. מסיבת חנוכה: אורית תבדוק מחירים לשלושה ספקים.<br><br>3. הפגישה הבאה: 11 בנובמבר 2025…</div>
+    </div>
+  </div>
+  <div class="status"><span>האינדקס מעודכן · <bdi>2,100</bdi> מסמכים</span></div>
+</div>
+</div>
+<p class="note">Mockup only: EXPERIENCE.md and DESIGN.md win on any conflict. Hebrew interface strings are placeholders; final translations are written by the author (FR-18).</p>
+</body>
+</html>
