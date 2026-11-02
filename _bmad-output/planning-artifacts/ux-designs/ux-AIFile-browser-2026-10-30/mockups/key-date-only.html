@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Date-Only Search Mockup</title>
+<style>
+/* Key screen: Main window, date-only search (option B, decided 2026-11-01).
+   Governing spine sections:
+   - DESIGN.md: Colors (notice-info for the hint), Components (Search Bar, Filter chip, Result group header,
+     Notice banner, Preview Panel, Status bar)
+   - EXPERIENCE.md: Component Patterns (Search Bar: date-only detection), State Patterns (Date-only search),
+     Voice and Tone (hint row), Bidirectional Text and RTL.
+   PRD FR-23. Spines win on conflict. Light theme only.
+   Hebrew strings are placeholders until the author's translations. Today = Sunday, Nov 1, 2026,
+   so "last week" = Sun Oct 25 – Sat Oct 31, 2026 (PRD FR-14). */
+:root{--bg:#FFFFFF;--pane:#F3F3F3;--primary:#0F6CBD;--sel:#CFE4FA;--info:#EBF3FC;--info-fg:#0F548C;--fg:#1B1B1F;--muted:#62626B;--border:#E1E1E6;--r-sm:4px;--r-md:6px;--r-lg:8px}
+*{box-sizing:border-box}
+body{margin:0;background:#E9EBEF;font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;color:var(--fg);font-size:15px;line-height:1.45;padding:24px 16px}
+.caption{max-width:1280px;margin:0 auto 10px;font-size:13px;color:#3a3a40}
+.caption b{font-size:16px;display:block;color:var(--fg)}
+.scroll{overflow-x:auto;margin-bottom:40px;padding-bottom:8px}
+.win{width:1280px;height:700px;margin:0 auto;background:var(--bg);border:1px solid #c9c9cf;border-radius:var(--r-lg);box-shadow:0 8px 28px rgba(0,0,0,.14);display:grid;grid-template-rows:32px 60px 44px minmax(0,1fr) 28px;overflow:hidden}
+.titlebar{display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12px;background:var(--pane);color:var(--muted)}
+.titlebar .ctl{letter-spacing:20px;direction:ltr}
+.top{display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--border)}
+.navbtns{display:flex;gap:2px;color:var(--muted);font-size:16px}
+.navbtns span{width:32px;height:32px;display:grid;place-items:center;border-radius:var(--r-sm)}
+.crumbs{font-size:14px;padding:6px 10px;border-radius:var(--r-sm);white-space:nowrap}
+.search{flex:1;max-width:640px;margin-inline-start:auto;height:44px;border:2px solid var(--primary);border-radius:var(--r-md);display:flex;align-items:center;gap:10px;padding:0 12px;font-size:18px;line-height:1.3}
+.search svg{flex:none}
+.search .x{margin-inline-start:auto;color:var(--muted);font-size:14px}
+.gear{color:var(--muted);width:32px;text-align:center;font-size:18px}
+.filters{display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--border)}
+.chip{font-size:13px;padding:3px 12px;border-radius:9999px;background:var(--pane);border:1px solid var(--border)}
+.chip.on{background:var(--sel);color:var(--info-fg);border-color:#9DC4EE;font-weight:600}
+.body{display:grid;grid-template-columns:240px minmax(0,1fr) 320px;min-height:0}
+.navpane{background:var(--pane);border-inline-end:1px solid var(--border);padding:8px;font-size:14px}
+.navpane h4{font-size:12px;font-weight:600;color:var(--muted);margin:12px 10px 4px;letter-spacing:.02em}
+.navpane div{padding:6px 10px;border-radius:var(--r-sm)}
+.navpane .cur{background:var(--sel)}
+.main{overflow:hidden;padding:4px 16px}
+.preview{background:var(--pane);border-inline-start:1px solid var(--border);padding:16px;overflow:hidden}
+.status{background:var(--pane);border-top:1px solid var(--border);font-size:12px;display:flex;align-items:center;gap:12px;padding:0 16px;color:var(--muted)}
+.hint{display:flex;align-items:center;gap:10px;background:var(--info);color:var(--info-fg);border-radius:var(--r-md);padding:8px 12px;font-size:14px;margin:10px 0 4px}
+.hint .close{margin-inline-start:auto;cursor:default;font-size:13px}
+.group{font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.02em;margin:12px 0 4px}
+.row{display:flex;align-items:center;gap:12px;padding:6px 10px;border-radius:var(--r-sm);min-height:44px}
+.row.sel{background:var(--sel);outline:2px solid var(--primary);outline-offset:-2px}
+.ico{flex:none;width:28px;height:34px;border-radius:3px;font-size:9px;font-weight:700;color:#fff;display:grid;place-items:center;direction:ltr}
+.pdf{background:#C4314B}.doc{background:#185ABD}.txt{background:#5C5C66}.md{background:#3A3A44}
+.name{font-size:15px}
+.meta{font-size:13px;color:var(--muted)}
+.when{margin-inline-start:auto;font-size:13px;color:var(--muted);white-space:nowrap}
+.pv-title{font-family:'Segoe UI Variable Display','Segoe UI',sans-serif;font-size:20px;font-weight:600;line-height:1.25;margin:10px 0 8px;word-break:break-word}
+.pv-meta{font-size:13px;color:var(--muted);display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin-bottom:12px}
+.pv-meta span:nth-child(even){color:var(--fg)}
+.pv-text{font-size:14px;line-height:1.5;background:var(--bg);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;height:340px;overflow:hidden}
+bdi{unicode-bidi:isolate}
+.note{max-width:1280px;margin:8px auto 0;font-size:12px;color:#55555c}
+.callout{max-width:1280px;margin:0 auto 12px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;font-size:13px}
+.callout div{background:#fff;border:1px solid var(--border);border-radius:var(--r-md);padding:10px 12px}
+.callout b{display:block;font-size:13px;margin-bottom:2px}
+</style>
+</head>
+<body>
+
+<div class="caption" dir="rtl" style="text-align:right"><b>1. חיפוש "תאריך בלבד", עברית: דנה כותבת "עבדתי על מסמך בשבוע שעבר"</b>
+היום יום ראשון, 1 בנובמבר 2026. "בשבוע שעבר" הפך לצ'יפ תאריך (25–31 באוק׳). "עבדתי על מסמך" הן רק מילות מילוי, ולכן במקום חיפוש לפי משמעות מופיעה רשימה אחת של כל המסמכים מהשבוע, מהחדש לישן, ומעליה רמז שאפשר לסגור.</div>
+<div class="callout" dir="rtl" style="text-align:right">
+  <div><b>① ביטוי הזמן זוהה</b>"בשבוע שעבר" יצא מתיבת החיפוש והפך לצ'יפ. אפשר לנקות אותו ב-✕.</div>
+  <div><b>② רמז, לא שאלה</b>הרמז לא חוסם כלום. דנה יכולה להתעלם ממנו, לסגור אותו, או להוסיף מילה ולצמצם.</div>
+  <div><b>③ רשימה לפי זמן</b>אין דירוג לפי משמעות ואין "התאמה חלקית". כל מסמך מהשבוע מופיע, החדש ביותר למעלה.</div>
+</div>
+<div class="scroll">
+<div class="win" dir="rtl" lang="he">
+  <div class="titlebar"><span>File Browser 2.0</span><span class="ctl">–▢✕</span></div>
+  <div class="top">
+    <div class="navbtns"><span>→</span><span>←</span><span>↑</span></div>
+    <div class="crumbs">מסמכים</div>
+    <div class="search">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#62626B" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+      <span>עבדתי על מסמך</span><span class="x">✕</span>
+    </div>
+    <div class="gear">⚙</div>
+  </div>
+  <div class="filters">
+    <span class="chip on">① תאריך: 25–31 באוק׳ 2026 &nbsp;✕</span>
+    <span class="chip">סוג ▾</span>
+  </div>
+  <div class="body">
+    <div class="navpane">
+      <h4>תיקיות לחיפוש</h4>
+      <div class="cur">מסמכים</div><div>שולחן העבודה</div>
+      <h4>גישה מהירה</h4>
+      <div>מסמכים</div><div>שולחן העבודה</div><div>הורדות</div>
+      <h4>מחשב זה</h4>
+      <div>דיסק מקומי (C:)</div>
+    </div>
+    <div class="main">
+      <div class="hint">ⓘ ② זוכרים על מה היה? אפשר להוסיף מילה כדי לצמצם. <span class="close">✕</span></div>
+      <div class="group">③ מסמכים מ-25–31 באוק׳ 2026 (7)</div>
+      <div class="row sel"><div class="ico doc">W</div><div>
+        <div class="name"><bdi>סיכום ישיבה 4.docx</bdi></div>
+        <div class="meta"><bdi>מסמכים</bdi> › <bdi>Volunteering</bdi></div></div>
+        <div class="when">יום ה׳, 29 באוק׳, 21:40</div></div>
+      <div class="row"><div class="ico pdf">PDF</div><div>
+        <div class="name"><bdi>הצעת מחיר - הסעות לטיול.pdf</bdi></div>
+        <div class="meta"><bdi>מסמכים</bdi> › <bdi>Volunteering</bdi></div></div>
+        <div class="when">יום ה׳, 29 באוק׳, 10:05</div></div>
+      <div class="row"><div class="ico doc">W</div><div>
+        <div class="name"><bdi>Project kickoff notes.docx</bdi></div>
+        <div class="meta"><bdi>מסמכים</bdi> › <bdi>Work</bdi></div></div>
+        <div class="when">יום ג׳, 27 באוק׳, 16:12</div></div>
+      <div class="row"><div class="ico doc">W</div><div>
+        <div class="name"><bdi>מכתב למחנכת.docx</bdi></div>
+        <div class="meta"><bdi>מסמכים</bdi> › <bdi>School</bdi></div></div>
+        <div class="when">יום ג׳, 27 באוק׳, 08:30</div></div>
+      <div class="row"><div class="ico txt">TXT</div><div>
+        <div class="name"><bdi>רשימת קניות לשבת.txt</bdi></div>
+        <div class="meta"><bdi>שולחן העבודה</bdi></div></div>
+        <div class="when">יום ב׳, 26 באוק׳, 19:55</div></div>
+      <div class="row"><div class="ico md">MD</div><div>
+        <div class="name"><bdi>README.md</bdi></div>
+        <div class="meta"><bdi>מסמכים</bdi> › <bdi>Projects</bdi> › <bdi>home-budget</bdi></div></div>
+        <div class="when">יום ב׳, 26 באוק׳, 11:20</div></div>
+      <div class="row"><div class="ico pdf">PDF</div><div>
+        <div class="name"><bdi>חשבון חשמל - אוקטובר.pdf</bdi></div>
+        <div class="meta"><bdi>מסמכים</bdi> › <bdi>Bills</bdi></div></div>
+        <div class="when">יום א׳, 25 באוק׳, 09:02</div></div>
+    </div>
+    <div class="preview">
+      <div class="ico doc" style="width:36px;height:44px;font-size:13px">W</div>
+      <div class="pv-title"><bdi>סיכום ישיבה 4.docx</bdi></div>
+      <div class="pv-meta">
+        <span>מיקום</span><span><bdi>מסמכים</bdi> › <bdi>Volunteering</bdi></span>
+        <span>סוג</span><span>מסמך Word</span>
+        <span>גודל</span><span><bdi>41 KB</bdi></span>
+        <span>שונה</span><span>29 באוק׳ 2026, 21:40</span>
+      </div>
+      <div class="pv-text"><b>סיכום ישיבת ועד ההורים מס׳ 4</b><br><br>נוכחים: דנה, אורית ורונן.<br><br>1. הסעות לטיול השנתי: התקבלו שתי הצעות מחיר. ההצעה הזולה יותר כוללת ליווי של מאבטח.<br><br>2. מסיבת חנוכה: נקבע ל-17 בדצמבר בחצר בית הספר.<br><br>3. הפגישה הבאה: 12 בנובמבר 2026…</div>
+    </div>
+  </div>
+  <div class="status"><span>מעודכן · <bdi>2,104</bdi> מסמכים</span></div>
+</div>
+</div>
+
+<div class="caption"><b>2. Date-only search, English: "I worked on a document last week"</b>
+Same state in the English interface. Selecting a row updates the Preview Panel, so Michael can skim the week's documents with ↓ without opening any of them.</div>
+<div class="scroll">
+<div class="win">
+  <div class="titlebar"><span>File Browser 2.0</span><span class="ctl">–▢✕</span></div>
+  <div class="top">
+    <div class="navbtns"><span>←</span><span>→</span><span>↑</span></div>
+    <div class="crumbs">Documents</div>
+    <div class="search">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#62626B" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+      <span>I worked on a document</span><span class="x">✕</span>
+    </div>
+    <div class="gear">⚙</div>
+  </div>
+  <div class="filters">
+    <span class="chip on">Date: Oct 25–31, 2026 &nbsp;✕</span>
+    <span class="chip">Type ▾</span>
+  </div>
+  <div class="body">
+    <div class="navpane">
+      <h4>SEARCH FOLDERS</h4>
+      <div class="cur">Documents</div><div>Desktop</div>
+      <h4>QUICK ACCESS</h4>
+      <div>Documents</div><div>Desktop</div><div>Downloads</div>
+      <h4>THIS PC</h4>
+      <div>Local Disk (C:)</div>
+    </div>
+    <div class="main">
+      <div class="hint">ⓘ Remember what it was about? Add a word to narrow it down. <span class="close">✕</span></div>
+      <div class="group">Documents from Oct 25–31, 2026 (5)</div>
+      <div class="row"><div class="ico pdf">PDF</div><div>
+        <div class="name">acme-api-rate-limits.pdf</div>
+        <div class="meta">Documents › Projects › Acme › Specs</div></div>
+        <div class="when">Fri, Oct 30, 5:47 PM</div></div>
+      <div class="row sel"><div class="ico md">MD</div><div>
+        <div class="name">sprint-14-retro.md</div>
+        <div class="meta">Documents › Projects › Acme</div></div>
+        <div class="when">Thu, Oct 29, 3:10 PM</div></div>
+      <div class="row"><div class="ico doc">W</div><div>
+        <div class="name">Northwind proposal v3.docx</div>
+        <div class="meta">Documents › Clients › Northwind</div></div>
+        <div class="when">Wed, Oct 28, 11:02 AM</div></div>
+      <div class="row"><div class="ico txt">TXT</div><div>
+        <div class="name">meeting-notes-oct-27.txt</div>
+        <div class="meta">Desktop</div></div>
+        <div class="when">Tue, Oct 27, 9:15 AM</div></div>
+      <div class="row"><div class="ico pdf">PDF</div><div>
+        <div class="name">invoice-2026-10.pdf</div>
+        <div class="meta">Documents › Freelance › Invoices</div></div>
+        <div class="when">Sun, Oct 25, 8:40 PM</div></div>
+    </div>
+    <div class="preview">
+      <div class="ico md" style="width:36px;height:44px;font-size:11px">MD</div>
+      <div class="pv-title">sprint-14-retro.md</div>
+      <div class="pv-meta">
+        <span>Location</span><span>Documents › Projects › Acme</span>
+        <span>Type</span><span>Markdown document</span>
+        <span>Size</span><span>6 KB</span>
+        <span>Modified</span><span>Oct 29, 2026, 3:10 PM</span>
+      </div>
+      <div class="pv-text"><b># Sprint 14 retro</b><br><br><b>## Went well</b><br>- Role-based access shipped on time<br>- Fewer flaky tests after the CI fix<br><br><b>## To improve</b><br>- Rate-limit spec arrived late; start API docs earlier<br>- Too many meetings on Tuesday…</div>
+    </div>
+  </div>
+  <div class="status"><span>Up to date · 4,826 documents</span></div>
+</div>
+</div>
+<p class="note">Mockup only: EXPERIENCE.md and DESIGN.md win on any conflict. Behavior is specified in PRD FR-23. Hebrew interface strings are placeholders.</p>
+</body>
+</html>

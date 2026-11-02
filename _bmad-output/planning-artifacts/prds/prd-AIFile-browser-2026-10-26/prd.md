@@ -3,7 +3,7 @@ title: "PRD: File Browser 2.0"
 status: final
 revision: 2
 created: 2026-10-26
-updated: 2026-11-01
+updated: 2026-11-02
 ---
 
 # PRD: File Browser 2.0
@@ -16,7 +16,7 @@ This product requirements document (PRD) defines what the File Browser 2.0 minim
 
 How to read it:
 - Every domain term is defined once in §3 Glossary. The rest of the document uses those terms exactly.
-- Features are in §4. Each functional requirement (FR-1 … FR-22) lists its delivery phase, its dependencies and its testable acceptance criteria. The three EARS requirements carried over from Exercise 1 are in §4.0, each with its acceptance test and the FR that carries it.
+- Features are in §4. Each functional requirement (FR-1 … FR-23) lists its delivery phase, its dependencies and its testable acceptance criteria. The three EARS requirements carried over from Exercise 1 are in §4.0, each with its acceptance test and the FR that carries it.
 - Quality requirements that apply to the whole app, called non-functional requirements (NFR-1 … NFR-12), are in §5. Hard constraints (C-1 … C-7), including **no database** and the **fixed technology stack**, are in §6.
 - Anything inferred without the author's confirmation is tagged `[ASSUMPTION]` and listed in §11.
 - "Post-MVP" means a release after this MVP. It is not a commitment.
@@ -62,15 +62,16 @@ Around the search sits a normal file browser (folders, breadcrumbs, open file), 
 
 ## 3. Glossary
 
-- **Indexed Folder:** a folder the user explicitly chose for Smart Search, including all its subfolders. The user can add and remove Indexed Folders. Nothing outside them is ever read for indexing.
+- **Indexed Folder:** a folder the user explicitly chose for Smart Search, including all its subfolders. The user can add and remove Indexed Folders. Nothing outside them is ever read for indexing. In the interface these are called "Search folders".
 - **Supported Document:** a file in an Indexed Folder with a format the MVP can extract text from: TXT, text-based PDF, DOCX or MD.
-- **Index:** the local data the app builds from Supported Documents (metadata, extracted text, Passages and their Embeddings). It is stored only on the user's computer, as plain files, never in a database (see C-1).
+- **Index:** the local data the app builds from Supported Documents (metadata, extracted text, Passages and their Embeddings). It is stored only on the user's computer, as plain files, never in a database (see C-1). "Index" is a term for this document only: the interface never shows the word to the user.
 - **Passage:** a short section of a Supported Document's text. It is the unit Smart Search matches against. One Supported Document has one or more Passages.
 - **Embedding:** a list of numbers the local AI model produces for a Passage, so that texts with similar meaning can be found together. The app uses one embedding model (C-3).
 - **Search Bar:** the single text input at the center of the app, used for both Filename Search and Smart Search.
 - **Filename Search:** matching the Search Bar text against file and folder names in the current folder and its subfolders, read directly from the file system. It does not need the Index.
 - **Smart Search:** matching the Search Bar text against the Index by meaning, limited by the active Filters.
 - **Date Phrase:** a date expression in the query that the app recognizes by fixed rules ("between January 10 and 20", "in March", "last week"). The supported list is in FR-14. A recognized Date Phrase sets the Date Filter.
+- **Date-only search:** a search whose query is only a Date Phrase plus filler words, such as "I worked on a document last week". It lists the documents from that time by date instead of searching by meaning (FR-23).
 - **Activity Date:** the file's last-modified time. The Date Filter is compared against it.
 - **Filters:** the Date Filter (an Activity Date range) and the Type Filter (one or more of PDF, Word, Text, Markdown). Both are visible controls the user can set or clear.
 - **Result List:** the ranked list of files returned by a search.
@@ -184,7 +185,7 @@ The app creates an Embedding for each Passage with the bundled local model and s
 #### FR-10: Update the Index incrementally
 **Phase:** 3 · **Depends on:** FR-9
 
-The Index is updated on app startup and when the user selects "Update index". Only added, modified, renamed and deleted Supported Documents are processed.
+The Index is updated on app startup and when the user selects "Check for new documents". Only added, modified, renamed and deleted Supported Documents are processed.
 - A document counts as modified when its last-modified time or size differs from the values stored in the Index.
 - An update on an unchanged collection of ~5,000 Supported Documents finishes in **< 60 seconds** on the Baseline PC.
 - Changes made while the app is running are picked up on the next startup or manual update. There is no live file watching.
@@ -192,7 +193,7 @@ The Index is updated on app startup and when the user selects "Update index". On
 #### FR-11: Index status and reset
 **Phase:** 3 · **Depends on:** FR-9
 
-The user can see the state of the Index and reset it.
+The user can see the state of the Index and reset it. In the interface this screen is called "Search folders". It explains; nothing on it is needed to get accurate results.
 - The status shows the Indexed Folders, the document count, the last update, skipped files with their reasons, and a count of files in Indexed Folders whose format isn't supported, by extension (for example ".doc: 214").
 - The user can rebuild the Index or delete all Index data.
 
@@ -206,6 +207,7 @@ The user can see the state of the Index and reset it.
 Pressing Enter in the Search Bar runs both Filename Search and Smart Search. The Result List shows them in two labeled groups, "Name matches" and "Content matches". `[ASSUMPTION: no mode switch]`
 - A one-word query that matches filenames still shows any content matches below them.
 - Filename Search uses the query text with any recognized Date Phrase (FR-14) removed.
+- A query that is only a Date Phrase plus filler words is a date-only search and follows FR-23 instead.
 
 #### FR-13: Search by meaning
 **Phase:** 4 · **Depends on:** FR-9
@@ -228,12 +230,12 @@ The app recognizes the following Date Phrases in Hebrew and English with fixed r
 | Month | "in March", "from October 2025" | "במרץ", "מאוקטובר 2025" | The whole month |
 | Year | "in 2025" | "ב-2025" | The whole year |
 | Relative day | "today", "yesterday" | "היום", "אתמול" | That day |
-| Relative period | "last week", "last month", "last year" | "בשבוע שעבר", "בחודש שעבר", "בשנה שעברה" | The full calendar week (Sunday to Saturday), month or year before the current one |
+| Relative period | "last week", "last month", "last year", "previous week", "previous month", "previous year", "a week ago", "a month ago", "a year ago" | "בשבוע שעבר", "שבוע שעבר", "בשבוע הקודם", "לפני שבוע", "בחודש שעבר", "חודש שעבר", "בחודש הקודם", "לפני חודש", "בשנה שעברה", "שנה שעברה", "בשנה הקודמת", "לפני שנה" | The full calendar week (Sunday to Saturday), month or year before the current one `[ASSUMPTION: "a week ago" means last week]` |
 
 - Numeric dates are read day first (day.month.year or day/month/year), so "5.3.2026" is March 5, 2026.
 - If no year is given, the phrase means the most recent such period that started on or before today. On October 28, 2026, "in March" means March 2026 and "in November" means November 2025.
 - Phrases outside this table are treated as ordinary query text. They do not cause an error.
-- A fixed test list of at least 40 phrases (20 Hebrew, 20 English) is kept in the repository. It includes every example in this table, the Glossary, UJ-2 and UJ-3, plus negative cases that must not set a Date Filter (for example "in the fall", "March budget.docx"). 100% of the list produces the expected result. `[ASSUMPTION: list size]`
+- A fixed test list of at least 60 phrases (30 Hebrew, 30 English) is kept in the repository. It includes every example in this table, the Glossary, UJ-2 and UJ-3, plus negative cases that must not set a Date Filter (for example "in the fall", "March budget.docx"). 100% of the list produces the expected result. `[ASSUMPTION: list size]`
 
 #### FR-15: Date Filter and Type Filter
 **Phase:** 4 · **Depends on:** FR-6, FR-12, FR-13
@@ -241,7 +243,7 @@ The app recognizes the following Date Phrases in Hebrew and English with fixed r
 The user can limit results with a Date Filter (the presets "Last week", "Last month" and "Last year", which use the FR-14 definitions, or a custom from–to range) and a Type Filter (PDF, Word, Text, Markdown).
 - Active Filters are always visible. The user can clear each one with one click, and the search re-runs.
 - A Date Filter set by a Date Phrase (FR-14) looks and behaves the same as one set by hand.
-- Once a Date Phrase has set the Date Filter, that phrase is not recognized again for the same query. Clearing that Date Filter turns the phrase back into ordinary query text, and the search re-runs with no Date Filter.
+- Once a Date Phrase has set the Date Filter, that phrase is not recognized again for the same query. Clearing that Date Filter turns the phrase back into ordinary query text, and the search re-runs with no Date Filter. A date-only search is the exception (FR-23).
 - Both Filters apply to the "Content matches" group. The Type Filter also applies to "Name matches".
 - Type Filter extensions: PDF = `.pdf`; Word = `.docx` and `.doc`; Text = `.txt`; Markdown = `.md`. Only `.docx` Word files can appear in "Content matches", because `.doc` is not a Supported Document.
 
@@ -261,14 +263,28 @@ The app shows the best results it has above the Relevance Floor.
 - If one value can't meet both targets, SM-1 wins. Even then, "xyz123", the EARS-03 test query, must always return no Content matches.
 - The "Content matches" group shows at most the top 20 results, and at most 5 of them are Close Matches.
 - If no results match the active Filters, the app says so ("No matches from Oct 1–31, 2025") and offers a one-click action to clear each active Filter.
-- If a search finishes with no results in either group and no Filters are active, the app shows "No matching files found" (EARS-03) and suggests next steps: rephrase the query, or check that the folder is indexed. A cancelled search does not show this message. While indexing runs, the FR-13 notice is also shown.
+- If a search finishes with no results in either group and no Filters are active, the app shows "No matching files found" (EARS-03) and suggests trying different words. A cancelled search does not show this message. While indexing runs, the FR-13 notice is also shown.
+- Below that message, the app explains why a file the user knows exists might not be found: it is a scanned document or a picture, it is in a format the app can't read inside (for example `.doc`), or it is not in an Indexed Folder. It suggests searching by name instead and links to the "Search folders" screen (FR-11). A short "Can't find a file you know is there?" link to the same explanation also appears at the end of any Result List. The explanation never asks the user to change anything.
+
+#### FR-23: Date-only search
+**Phase:** 4 · **Depends on:** FR-14, FR-15
+
+When the user remembers only when they worked on a document, a query such as "I worked on a document last week" lists the documents from that time instead of searching by meaning.
+- A query is date-only when it contains a recognized Date Phrase (FR-14) and the rest of the text is only filler words from a fixed list kept in the repository (for example "I worked on", "document", "file", "עבדתי על", "מסמך", "קובץ"). Fixed rules, no AI model (C-3).
+- The Result List shows one group, "Documents from Oct 25–31, 2026 (7)", listing every Supported Document whose Activity Date is in the range, newest first, up to 50. The Type Filter still applies. "Name matches" is not shown.
+- No Relevance Floor and no Close Match labels apply, because nothing is ranked by meaning.
+- Above the list, the hint "Remember what it was about? Add a word to narrow it down." appears. The user can close it, and it never blocks the list. The app does not ask a follow-up question (§7).
+- If the range has no documents, the app shows "No documents from Oct 25–31, 2026" with a one-click action to clear the Date Filter.
+- Clearing the Date Filter of a date-only search clears the whole search and returns to browsing the current folder. The phrase does not turn back into query text (an exception to FR-15), because the rest of the query has no content to search for.
+- Results appear within 2 seconds of pressing Enter on the Baseline PC with ~5,000 indexed Supported Documents. `[ASSUMPTION: 2 seconds]`
+- **Acceptance:** "I worked on a document last week" and "עבדתי על מסמך בשבוע שעבר" both produce the date-only list for the previous calendar week. "budget last week" is not date-only: it runs Smart Search with the Date Filter set.
 
 ### 4.5 Interface Language
 
 **Description:** The whole app speaks the user's language, including right-to-left Hebrew. Realizes UJ-2.
 
 #### FR-18: English and Hebrew interface
-**Phase:** 5 · **Depends on:** FR-1 to FR-17, FR-22 (applies to every screen)
+**Phase:** 5 · **Depends on:** FR-1 to FR-17, FR-22, FR-23 (applies to every screen)
 
 The interface is available in English and Hebrew and follows the Windows display language. English is the fallback. There is no manual language switch in the MVP.
 - In Hebrew, the whole layout is right-to-left (RTL).
@@ -280,7 +296,7 @@ The interface is available in English and Hebrew and follows the Windows display
 **Description:** A non-technical user installs once and is done. Realizes UJ-1.
 
 #### FR-19: Standalone Windows installer
-**Phase:** 5 · **Depends on:** FR-1 to FR-18, FR-22
+**Phase:** 5 · **Depends on:** FR-1 to FR-18, FR-22, FR-23
 
 One Windows installer contains the app, the Python backend with its runtime, and the embedding model.
 - After install, the app works with the network disabled.
@@ -374,7 +390,7 @@ These describe what the MVP deliberately is not. §8.2 says which of them may co
 ## 8. MVP scope and release plan
 
 ### 8.1 In scope
-FR-1 to FR-22, NFR-1 to NFR-12 and constraints C-1 to C-7. In short: folder browsing, a file Preview Panel, Filename Search, user-selected Indexed Folders, text extraction (TXT, PDF, DOCX, MD), a local plain-file Index, Smart Search (search by meaning) with simple Date Phrases and Filters, an English/Hebrew RTL interface, fully offline operation, and a standalone Windows installer.
+FR-1 to FR-23, NFR-1 to NFR-12 and constraints C-1 to C-7. In short: folder browsing, a file Preview Panel, Filename Search, user-selected Indexed Folders, text extraction (TXT, PDF, DOCX, MD), a local plain-file Index, Smart Search (search by meaning) with simple Date Phrases and Filters, an English/Hebrew RTL interface, fully offline operation, and a standalone Windows installer.
 
 ### 8.2 Out of scope for the MVP
 
@@ -402,7 +418,7 @@ Each phase ends with working, testable software that can be demonstrated in the 
 | 1 | **Basic File Browser.** React, TypeScript, Tailwind and Tauri set up. Basic communication with the Python backend. File and folder browsing, navigation, opening files. | FR-1 to FR-4, C-5 | The app runs from source, lists a real folder via the backend, navigates, and opens a file. An access-denied folder shows the FR-4 message. |
 | 2 | **Filename Search.** Search in a folder and its subfolders, result display, Hebrew and English filenames. | FR-5, FR-6 | Every FR-5 and FR-6 criterion passes, including EARS-01, EARS-03 (Filename Search only) and Correct Display of Hebrew and mixed-direction names. NFR-3 is measured and recorded. |
 | 3 | **Document Indexing.** Folder selection, text extraction, local Embeddings, plain-file Index, incremental update on startup and on demand. File Preview Panel. | FR-7 to FR-11, FR-22, C-1, C-3, NFR-8 | The EARS-02 test passes. A Hebrew DOCX shows its text in the Preview Panel, and so does a DOCX outside the Indexed Folders. A ~5,000-document test collection indexes, survives a forced close mid-indexing, and updates only changed files. NFR-4 and NFR-6 are measured and recorded. A packaged backend with the model is built and its size is recorded against NFR-7. |
-| 4 | **Smart Search.** Hebrew and English queries, simple Date Phrases, Date Filter and Type Filter, ranked results. | FR-12 to FR-17 | The FR-14 phrase list passes 100%. The Relevance Floor is tuned as FR-17 requires, and EARS-03 passes for both groups. A first SM-1 run is recorded. NFR-2 is measured. |
+| 4 | **Smart Search.** Hebrew and English queries, simple Date Phrases, Date Filter and Type Filter, ranked results. | FR-12 to FR-17, FR-23 | The FR-14 phrase list passes 100%. The Relevance Floor is tuned as FR-17 requires, and EARS-03 passes for both groups. The FR-23 acceptance queries pass within its time target. A first SM-1 run is recorded. NFR-2 is measured. |
 | 5 | **Interface Finalization, Testing and Packaging.** Bilingual English/Hebrew interface with RTL, error handling and usability, search-quality and performance testing, offline verification, backend and model bundled with Tauri, standalone Windows installer. | FR-18 to FR-21, NFR-1 to NFR-12 | The installer installs on a clean Windows 11 PC with the network disabled, and SM-1 to SM-5 pass. |
 
 ## 9. Success metrics
@@ -426,7 +442,7 @@ Each phase ends with working, testable software that can be demonstrated in the 
 1. Should cross-language matching (Hebrew query → English document) become a goal after the MVP, or stay a nice extra? (FR-13)
 2. What's the maximum file size to extract? Very large PDFs could dominate indexing time. Proposal: a 50 MB cap. Larger files are skipped for content but stay findable by name. (FR-8)
 3. Should Smart Search include folder and file names in meaning matching (for example a folder called "School committee")? (FR-13)
-4. How should a query that is only a Date Phrase ("files from last week") behave? Proposal: list every Supported Document in that range, newest first. (FR-14, FR-15)
+4. ~~How should a query that is only a Date Phrase ("files from last week") behave?~~ **Resolved 2026-11-01:** see FR-23.
 5. Which single embedding model meets Hebrew quality, the 1 GB installer limit, processor speed and license constraints together? This is for the architecture phase, and the answer feeds SM-1 and SM-2. If no model meets all of them, C-3 sets the order in which they give way. (C-3, NFR-7, NFR-12)
 
 The ten questions raised by the validation review were decided by the author on 2026-10-28 (§12.7).
@@ -436,7 +452,9 @@ The ten questions raised by the validation review were decided by the author on 
 - §4.3 FR-8: legacy Hebrew encoding (Windows-1255) support for TXT and MD.
 - §4.4 FR-12: one Search Bar runs both searches, with results in two groups and no mode switch.
 - §4.4 FR-13: cross-language matching is not required.
-- §4.4 FR-14: the Date Phrase test list has at least 40 phrases (20 Hebrew, 20 English).
+- §4.4 FR-14: the Date Phrase test list has at least 60 phrases (30 Hebrew, 30 English).
+- §4.4 FR-14: "a week ago", "לפני שבוע" and their month and year forms mean the previous calendar period, like "last week".
+- §4.4 FR-23: date-only search shows results within 2 seconds.
 - §4.4 FR-17: the nonsense-query list for tuning the Relevance Floor has at least 10 queries.
 - §4.7 FR-22: the text preview shows the first 2,000 characters.
 - §4.7 FR-22: the preview appears within 2 seconds of selection.
@@ -572,3 +590,15 @@ The re-validation on 2026-10-31 graded the PRD Excellent and found 2 low finding
 |---|---|---|
 | Low: the one-word guard couldn't fail SM-1 on its own | Fixed. At least 4 of the 5 one-word queries must pass. | §9 SM-1, FR-17 |
 | Low: Phase 3 exit didn't test preview outside Indexed Folders | Fixed. A DOCX outside the Indexed Folders must also show its text. | §8.3 Phase 3 |
+
+### 12.10 Changes from the UX review (author, 2026-11-01)
+The author reviewed the UX design with the UX designer. These changes bring the PRD in line with it.
+
+| Change | Reason | Where |
+|---|---|---|
+| New FR-23: date-only search lists the documents from the range, newest first, with a hint to add a word | "I worked on a document last week" left only filler words for Smart Search, so it returned nothing. Resolves Open Question 4. | FR-12, FR-23, §8.3, §10 |
+| More Date Phrase forms ("previous week", "a week ago", "בשבוע הקודם", "שבוע שעבר", "לפני שבוע" and month and year forms) | People don't phrase dates the way a table does | FR-14, §11 |
+| The interface never says "index": the Index status screen is "Search folders", and "Update index" is "Check for new documents" | "Index" is jargon for non-technical users | §3, FR-10, FR-11 |
+| "Can't find a file you know is there?" explanation under "No matching files found" and at the end of any Result List | Explains why a file might be missing (scanned, unsupported type, folder not searched) at the moment it matters. It informs and never asks the user to change anything. | FR-17 |
+| Validation fix (2026-11-02): clearing the Date Filter of a date-only search clears the whole search | Otherwise Smart Search ran on filler words and showed "No matching files found" | FR-23, FR-15 |
+| Validation fix (2026-11-02): "Date-only search" added to the Glossary | Two FRs depend on the term | §3 |

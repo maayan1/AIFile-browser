@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Search Folders Redesign</title>
+<style>
+/* Proposal (2026-11-01): redesign of "Index settings" as "Search folders", plus the "Can't find it?" explanation.
+   Replaces part 2 of key-first-run.html if the author approves.
+   Governing spine sections (to be updated on approval):
+   - DESIGN.md: Elevation & Depth (dialogs), Shapes, Components (dialog, notice)
+   - EXPERIENCE.md: Information Architecture (Index settings), Component Patterns (Index settings), Voice and Tone,
+     State Patterns (No results, no Filters active = EARS-03).
+   PRD needs: FR-7 add/remove folders, FR-10 manual update, FR-11 status, skipped files, unsupported counts, rebuild, delete.
+   Light theme only. */
+:root{--bg:#FFFFFF;--pane:#F3F3F3;--primary:#0F6CBD;--sel:#CFE4FA;--info:#EBF3FC;--info-fg:#0F548C;--ok:#0E7A0D;--fg:#1B1B1F;--muted:#62626B;--border:#E1E1E6;--r-sm:4px;--r-md:6px;--r-lg:8px}
+*{box-sizing:border-box}
+body{margin:0;background:#E9EBEF;font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;color:var(--fg);font-size:15px;line-height:1.45;padding:24px 16px}
+.caption{max-width:1280px;margin:0 auto 10px;font-size:13px;color:#3a3a40}
+.caption b{font-size:16px;display:block;color:var(--fg)}
+.scroll{overflow-x:auto;margin-bottom:40px;padding-bottom:8px}
+.win{width:1280px;margin:0 auto;border:1px solid #c9c9cf;border-radius:var(--r-lg);box-shadow:0 8px 28px rgba(0,0,0,.14);overflow:hidden;position:relative;background:var(--bg)}
+.titlebar{height:32px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12px;background:var(--pane);color:var(--muted)}
+.titlebar .ctl{letter-spacing:20px}
+.stage{position:relative;height:820px;background:linear-gradient(var(--bg) 0 60px,var(--border) 60px 61px,var(--bg) 61px 104px,var(--border) 104px 105px,transparent 105px),linear-gradient(90deg,var(--pane) 0 240px,var(--bg) 240px 960px,var(--pane) 960px)}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.32);display:grid;place-items:center}
+.dialog{width:660px;background:var(--bg);border-radius:var(--r-lg);box-shadow:0 16px 48px rgba(0,0,0,.28);padding:24px 24px 20px}
+h2{font-family:'Segoe UI Variable Display','Segoe UI',sans-serif;font-size:20px;font-weight:600;line-height:1.25;margin:0 0 4px}
+.lead{font-size:14px;color:var(--muted);margin:0 0 16px}
+.card{border:1px solid var(--border);border-radius:var(--r-md);margin-bottom:12px}
+.card h3{font-size:15px;font-weight:600;margin:0;padding:12px 14px 2px}
+.card .sub{font-size:13px;color:var(--muted);padding:0 14px 8px}
+.item{display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid var(--border);font-size:14px}
+.path{font-size:12px;color:var(--muted)}
+.right{margin-inline-start:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.btn{display:inline-block;font-size:14px;padding:5px 14px;border:1px solid var(--border);border-radius:var(--r-md);background:#fff;white-space:nowrap}
+.btn.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
+.btn.link{border:none;color:var(--primary);padding:5px 0;background:none}
+.status{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--border);font-size:14px}
+.status .ok{color:var(--ok);font-weight:600}
+.chev{color:var(--muted);width:14px;display:inline-block}
+.count{font-weight:600;color:var(--fg)}
+.files{background:var(--pane);font-size:13px;padding:6px 14px 8px 40px;border-top:1px solid var(--border)}
+.files div{padding:2px 0}
+.adv{display:flex;align-items:center;gap:8px;padding:10px 14px;font-size:14px;color:var(--muted)}
+.foot{display:flex;justify-content:flex-end;margin-top:8px}
+/* search view */
+.sv{display:grid;grid-template-rows:60px 44px minmax(0,1fr) 28px;height:640px}
+.top{display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--border)}
+.navbtns{display:flex;gap:2px;color:var(--muted);font-size:16px}.navbtns span{width:32px;height:32px;display:grid;place-items:center}
+.crumbs{font-size:14px;padding:6px 10px}
+.search{flex:1;max-width:640px;margin-inline-start:auto;height:44px;border:2px solid var(--primary);border-radius:var(--r-md);display:flex;align-items:center;gap:10px;padding:0 12px;font-size:18px}
+.search .x{margin-inline-start:auto;color:var(--muted);font-size:14px}
+.gear{color:var(--muted);width:32px;text-align:center;font-size:18px}
+.filters{display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--border)}
+.chip{font-size:13px;padding:3px 12px;border-radius:9999px;background:var(--pane);border:1px solid var(--border)}
+.body{display:grid;grid-template-columns:240px minmax(0,1fr) 320px;min-height:0}
+.navpane{background:var(--pane);border-inline-end:1px solid var(--border);padding:8px;font-size:14px}
+.navpane h4{font-size:12px;font-weight:600;color:var(--muted);margin:12px 10px 4px}
+.navpane div{padding:6px 10px;border-radius:var(--r-sm)}
+.navpane .cur{background:var(--sel)}
+.main{padding:16px}
+.preview{background:var(--pane);border-inline-start:1px solid var(--border);display:grid;place-items:center;color:var(--muted)}
+.sbar{background:var(--pane);border-top:1px solid var(--border);font-size:12px;display:flex;align-items:center;padding:0 16px;color:var(--muted)}
+.empty{text-align:center;margin-top:48px}
+.empty .msg{font-size:15px}
+.empty .sub{font-size:13px;color:var(--muted);margin-top:4px}
+.why{max-width:480px;margin:24px auto 0;text-align:start;background:var(--info);color:var(--info-fg);border-radius:var(--r-md);padding:14px 16px;font-size:14px}
+.why b{display:block;margin-bottom:6px}
+.why ul{margin:0 0 10px;padding-inline-start:18px}
+.why li{margin-bottom:2px}
+.why .links{display:flex;gap:16px;font-weight:600}
+.why .links span{text-decoration:underline}
+.note{max-width:1280px;margin:8px auto 0;font-size:12px;color:#55555c}
+.compare{max-width:1280px;margin:0 auto 12px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;font-size:13px}
+.compare div{background:#fff;border:1px solid var(--border);border-radius:var(--r-md);padding:10px 12px}
+.compare b{display:block;margin-bottom:2px}
+</style>
+</head>
+<body>
+
+<div class="caption"><b>Proposal A. "Index settings" becomes "Search folders"</b>
+Same PRD functions (FR-7, FR-10, FR-11), reorganized around Yossi's two questions: "What do you search inside?" and "Which files can't you read?". No "index" jargon. Tools that rebuild or delete are tucked under "Advanced".</div>
+<div class="compare">
+  <div><b>Before: "Index settings"</b>A technical report: document count, skipped files, ".doc: 214", Rebuild, Delete. All at once, all the same weight.</div>
+  <div><b>After: three plain sections</b>① Folders I search inside, with a clear "up to date" line. ② Files I can't search inside, grouped by reason, each with a one-line explanation. ③ Advanced, collapsed.</div>
+  <div><b>Same rules as the PRD</b>Add/remove folders (FR-7), check for new documents (FR-10), status, skipped files and unsupported types (FR-11), start over and delete (FR-11).</div>
+</div>
+<div class="scroll">
+<div class="win">
+  <div class="titlebar"><span>File Browser 2.0</span><span class="ctl">–▢✕</span></div>
+  <div class="stage"><div class="scrim">
+    <div class="dialog">
+      <h2>Search folders</h2>
+      <p class="lead">I search inside the documents in these folders. Every other file can still be found by its name.</p>
+
+      <div class="card">
+        <h3>① Folders I search inside</h3>
+        <div class="item"><div>Documents<div class="path">C:\Users\Yossi\Documents</div></div><div class="right"><span class="btn">Remove</span></div></div>
+        <div class="item"><div>Desktop<div class="path">C:\Users\Yossi\Desktop</div></div><div class="right"><span class="btn">Remove</span></div></div>
+        <div class="item"><span class="btn link">+ Add folder…</span></div>
+        <div class="status"><span class="ok">✓ Up to date</span><span style="color:var(--muted)">2,104 documents · last checked today at 9:14 AM</span><span class="right"><span class="btn">Check for new documents</span></span></div>
+      </div>
+
+      <div class="card">
+        <h3>② Files I can't search inside</h3>
+        <div class="sub">I can still find these by name, just not by what's inside them. There's nothing you need to fix.</div>
+        <div class="item"><span class="chev">▾</span><div><span class="count">Scanned documents and pictures (3)</span><div class="path">I can't read text inside images.</div></div></div>
+        <div class="files">
+          <div>scan-pension-letter.pdf &nbsp;<span class="path">Documents › Bank</span></div>
+          <div>id-card-copy.pdf &nbsp;<span class="path">Desktop</span></div>
+          <div>receipt-fridge.pdf &nbsp;<span class="path">Documents › Home</span></div>
+        </div>
+        <div class="item"><span class="chev">▸</span><div><span class="count">Older Word files, .doc (214)</span><div class="path">I can read Word files saved as .docx, not the older .doc format.</div></div></div>
+        <div class="item"><span class="chev">▸</span><div><span class="count">Other file types (69)</span><div class="path">Excel and PowerPoint files (.xlsx, .pptx).</div></div></div>
+        <div class="item"><span class="chev">▸</span><div><span class="count">Password-protected files (1)</span><div class="path">I can't open files that need a password.</div></div></div>
+        <div class="item"><span class="chev">▸</span><div><span class="count">Stored only in OneDrive (1)</span><div class="path">These files aren't saved on this computer, so I don't download them.</div></div></div>
+      </div>
+
+      <div class="card"><div class="adv"><span class="chev">▸</span>③ Advanced: start over, or delete what I've learned about your documents</div></div>
+
+      <div class="foot"><span class="btn primary">Done</span></div>
+    </div>
+  </div></div>
+</div>
+</div>
+
+<div class="caption"><b>Proposal B. "Can't find it?" right where the search fails (EARS-03 state)</b>
+Yossi searches for "pension letter" and finds nothing. Below "No matching files found", a short box says why a file might be missing and links straight to section ② of "Search folders". It explains; it doesn't ask him to change anything.</div>
+<div class="scroll">
+<div class="win">
+  <div class="titlebar"><span>File Browser 2.0</span><span class="ctl">–▢✕</span></div>
+  <div class="sv">
+    <div class="top">
+      <div class="navbtns"><span>←</span><span>→</span><span>↑</span></div>
+      <div class="crumbs">Documents</div>
+      <div class="search"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#62626B" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg><span>pension letter</span><span class="x">✕</span></div>
+      <div class="gear">⚙</div>
+    </div>
+    <div class="filters"><span class="chip">Date ▾</span><span class="chip">Type ▾</span></div>
+    <div class="body">
+      <div class="navpane"><h4>SEARCH FOLDERS</h4><div class="cur">Documents</div><div>Desktop</div><h4>QUICK ACCESS</h4><div>Documents</div><div>Desktop</div><div>Downloads</div><h4>THIS PC</h4><div>Local Disk (C:)</div></div>
+      <div class="main">
+        <div class="empty">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#9a9aa2" stroke-width="1.5"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+          <div class="msg">No matching files found</div>
+          <div class="sub">Try different words.</div>
+        </div>
+        <div class="why">
+          <b>ⓘ Can't find a file you know is there?</b>
+          I may not be able to search inside it, if:
+          <ul>
+            <li>it's a scanned document or a picture</li>
+            <li>it's an older Word file (.doc), or an Excel or PowerPoint file</li>
+            <li>it's in a folder I don't search inside</li>
+          </ul>
+          Try searching for a word from its name instead.
+          <div class="links" style="margin-top:10px"><span>See files I can't search inside</span><span>Search folders</span></div>
+        </div>
+      </div>
+      <div class="preview">Select a file to preview</div>
+    </div>
+    <div class="sbar">Up to date · 2,104 documents</div>
+  </div>
+</div>
+</div>
+<p class="note">Proposal for review (2026-11-01). If approved, it replaces part 2 of key-first-run.html, and EXPERIENCE.md, DESIGN.md and the PRD wording ("Update index" → "Check for new documents") are updated. Hebrew layout mirrors as usual.</p>
+</body>
+</html>

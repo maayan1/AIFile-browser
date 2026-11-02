@@ -3,7 +3,7 @@ name: File Browser 2.0
 title: "EXPERIENCE: File Browser 2.0"
 status: final
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-11-01
 sources:
   - ../../prds/prd-AIFile-browser-2026-10-26/prd.md
   - DESIGN.md
@@ -16,7 +16,9 @@ Terms in Title Case (Indexed Folder, Search Bar, Filename Search, Smart Search, 
 **Mockups** (illustrations only; this spine and `DESIGN.md` win on any conflict):
 - [`mockups/key-search.html`](mockups/key-search.html): search view in English (Flow 3) and in Hebrew RTL (Flow 2).
 - [`mockups/key-states.html`](mockups/key-states.html): browse view with no selection and indexing running (EARS-02), no results with no Filters (EARS-03), and no results with a Filter active.
-- [`mockups/key-first-run.html`](mockups/key-first-run.html): first-run folder chooser (Flow 1) and Index settings.
+- [`mockups/key-first-run.html`](mockups/key-first-run.html): first-run folder chooser (Flow 1). Its part 2 ("Index settings") is superseded by `key-search-folders.html`.
+- [`mockups/key-search-folders.html`](mockups/key-search-folders.html): the "Search folders" dialog, and the "Can't find a file you know is there?" box in the no-results state.
+- [`mockups/key-date-only.html`](mockups/key-date-only.html): date-only search ("I worked on a document last week") in Hebrew RTL and English, with the narrowing hint (PRD FR-23).
 
 The context menu, the Date and Type popovers, the dark theme and the backend-error banner are spine-only.
 
@@ -36,11 +38,12 @@ The context menu, the Date and Type popovers, the dark theme and the backend-err
 | Main window: browse view | App open (Documents folder), nav pane, breadcrumbs | Browse, sort and open files | FR-1 to FR-4 |
 | Main window: search view | Pressing Enter in the Search Bar | Result List in two groups, "Name matches" and "Content matches" | FR-5, FR-6, FR-12 to FR-17 |
 | Preview Panel | Always beside the main list (browse and search views) | Check the selected file before opening it | FR-22 |
-| Index settings | Gear button in the top bar, or the status bar | Manage Indexed Folders, see Index status, update, rebuild or delete the Index | FR-7, FR-10, FR-11 |
+| Search folders | Gear button in the top bar, the status bar, or the links in the "Can't find a file you know is there?" box | See and change which folders are searched, check for new documents, and see which files can't be searched inside and why | FR-7, FR-10, FR-11 |
 
 - The browse view and the search view are the same window. Clearing the Search Bar (✕ or Esc) returns to the browse view of the current folder.
-- The nav pane lists: the Indexed Folders, then Documents, Desktop and Downloads, then the local drives. `[ASSUMPTION]`
-- Index settings opens as a `Dialog` (one level deep). No other surface stacks on top of it.
+- The nav pane lists: the Indexed Folders under the heading "Search folders", then Documents, Desktop and Downloads, then the local drives. `[ASSUMPTION]`
+- The word "index" never appears in the interface. The Indexed Folders are called "Search folders", and the PRD's "Update index" is labeled "Check for new documents" (PRD §3, FR-10, FR-11).
+- Search folders opens as a `Dialog` (one level deep). No other surface stacks on top of it.
 - The installer and uninstaller (FR-19, FR-21) use the standard Windows installer UI and are out of scope here.
 
 ## Voice and Tone
@@ -54,6 +57,7 @@ Plain, calm, everyday words. The user never sees "embedding", "vector", "query",
 | "No matching files found" | "0 results returned" |
 | "You don't have permission to open this folder." | "Error 5: Access denied" |
 | "Close match" | "Low confidence (0.42)" |
+| "Remember what it was about? Add a word to narrow it down." | "What was the document about?" as a question the user must answer (PRD §7: no follow-up questions) |
 | "Indexing in progress: results may be incomplete" | "Index not ready" |
 | "Stored only in OneDrive" | "Cloud placeholder, not hydrated" |
 | "The search stopped working. Trying again…" | Stack traces or "Python process exited" |
@@ -66,7 +70,7 @@ Behavioral. Visual specs are in `DESIGN.md` → Components.
 
 | Component | Behavior |
 |---|---|
-| Search Bar | Typing does nothing until **Enter** (PRD FR-12). Enter runs Filename Search and Smart Search together. If a Date Phrase is recognized, it is removed from the Search Bar text and becomes the active Date Filter chip, and the remaining text stays in the bar. ✕ or **Esc** clears the text and returns to the browse view. While a search runs, Esc cancels it. |
+| Search Bar | Typing does nothing until **Enter** (PRD FR-12). Enter runs Filename Search and Smart Search together. If a Date Phrase is recognized, it is removed from the Search Bar text and becomes the active Date Filter chip, and the remaining text stays in the bar. If the remaining text has no content words (only filler such as "I worked on", "document", "file", "עבדתי על", "מסמך", "קובץ", from a fixed list, no AI), the search becomes a **date-only search** (see State Patterns). `[ASSUMPTION: filler list]` ✕ or **Esc** clears the text and returns to the browse view. While a search runs, Esc cancels it. |
 | Breadcrumb bar | Each segment is clickable. Clicking the empty area or pressing **Alt+D** turns it into an editable path field. Enter opens a valid path. An invalid path shows "This folder doesn't exist." under the field and keeps the current folder (FR-2). |
 | Filter chips | **Date** opens a `Popover` with the presets "Last week", "Last month", "Last year" and a custom from–to `Calendar`. **Type** opens a `DropdownMenu` with checkboxes for PDF, Word, Text and Markdown. Each change re-runs the current search. ✕ on an active chip clears it and re-runs the search. A Date Filter set by a Date Phrase looks and works exactly like one set by hand. Clearing it puts the phrase back into the Search Bar as ordinary text (FR-15). |
 | File list (browse) | Columns: name, type, size, modified. Clicking a header sorts by it, and clicking again reverses. Single click selects (and updates the Preview Panel). Double-click or Enter opens. Right-click or **Shift+F10** opens the context menu. Single selection only. `[ASSUMPTION]` |
@@ -74,9 +78,9 @@ Behavioral. Visual specs are in `DESIGN.md` → Components.
 | Content result row | Selecting it updates the Preview Panel. Enter or double-click opens the file. The context menu has "Open" and "Show in folder". "Show in folder" leaves the search view, navigates to the containing folder and selects the file (FR-3). |
 | Preview Panel | Follows the selection with no extra click. Updates within 2 seconds (FR-22). Shows the details, then the first 2,000 characters of text for TXT, text-based PDF, DOCX and MD files in any folder, including folders that aren't indexed. The file is read only on selection and nothing is stored. The text is read-only and can be selected and copied. A toggle (the panel icon in the top bar, or **Alt+P**) hides or shows it, and the choice is remembered. `[ASSUMPTION: Alt+P]` |
 | Context menu | "Open" and "Show in folder" only. No rename, delete or move (PRD C-4). |
-| Status bar | Shows indexing progress, or "Index up to date · N documents" when idle. Clicking it opens Index settings. |
+| Status bar | Shows indexing progress, or "Up to date · N documents" when idle. Clicking it opens Search folders. |
 | Folder chooser | Heading "Which folders should I search inside?", one explanatory line, and the privacy line "Your files stay on this computer." Checkbox list with Documents and Desktop pre-checked, "Add folder…" (Windows folder picker), and "Start" (primary). Nothing is read until Start is pressed (FR-7). "Skip for now" closes it, and Filename Search and browsing still work. `[ASSUMPTION: skip allowed]` |
-| Index settings | Lists the Indexed Folders with "Remove" for each, plus "Add folder…". Shows the document count, the last update, skipped files with their reasons, and unsupported files counted by extension (".doc: 214"). Buttons: "Update index", "Rebuild index" and "Delete index data". Rebuild and Delete ask for confirmation in plain words (FR-11). |
+| Search folders | Lead line: "I search inside the documents in these folders. Every other file can still be found by its name." Three sections. **① Folders I search inside:** the Indexed Folders with "Remove" for each, "+ Add folder…", and a status line "✓ Up to date · N documents · last checked today at 9:14 AM" with a "Check for new documents" button (FR-10). **② Files I can't search inside:** "I can still find these by name, just not by what's inside them. There's nothing you need to fix." Skipped and unsupported files are grouped by reason, each group with a count and a one-line explanation in the first person (scanned documents and pictures; older Word files, .doc; other file types; password-protected; stored only in OneDrive). A group expands to list its files with their locations (FR-11). **③ Advanced** (collapsed): start over (rebuild) and delete what the app has learned, each with a plain confirmation that says user files are not touched (FR-11). Button: "Done". This section is informational: nothing in ② asks the user to act. |
 
 ## State Patterns
 
@@ -89,8 +93,10 @@ Behavioral. Visual specs are in `DESIGN.md` → Components.
 | Search view | Cancelled | Results found so far stay. Notice: "Search stopped." No "No matching files found" message (FR-6, FR-17). |
 | Search view | Indexing still running | Notice banner: "Indexing in progress: results may be incomplete" above "Content matches" (FR-13). |
 | Search view | Close Matches present | Close Matches sit at the end of "Content matches", each with the "Close match" label. |
-| Search view | No results, no Filters active (EARS-03) | Empty state: "No matching files found" and two suggestions: "Try different words" and "Check that the folder is indexed" (a link to Index settings). |
+| Search view | No results, no Filters active (EARS-03) | Empty state: "No matching files found" and "Try different words." Below it, an info box in `{colors.notice-info}`: "Can't find a file you know is there? I may not be able to search inside it, if: it's a scanned document or a picture; it's an older Word file (.doc), or an Excel or PowerPoint file; it's in a folder I don't search inside. Try searching for a word from its name instead." Links: "See files I can't search inside" (opens Search folders at section ②) and "Search folders". |
+| Search view | Results shown, but maybe not the one wanted | A single line at the end of the Result List: "Can't find a file you know is there? See why" opens the same explanation. `[ASSUMPTION]` |
 | Search view | No results with Filters active | Empty state: "No matches from Oct 1–31, 2025" (filter text varies), with one button per active Filter: "Clear date filter", "Clear type filter" (FR-17). |
+| Search view | Date-only search ("I worked on a document last week") | Instead of the two groups, one list: "Documents from Oct 19–25, 2025 (7)", every indexed document whose Activity Date is in the range, newest first, up to 50. The Type Filter still applies. No Relevance Floor and no Close Match labels, because nothing is ranked by meaning. Above the list, a hint in `{colors.notice-info}`: "Remember what it was about? Add a word to narrow it down." It has a ✕ and never blocks the list. If the range has no documents: "No documents from Oct 19–25, 2025" with "Clear date filter". Clearing the Date Filter of a date-only search clears the whole search and returns to browsing. `[ASSUMPTION: 50 cap, Name matches hidden]` (PRD FR-23) |
 | Search view | No Indexed Folders yet | "Content matches" shows: "Choose folders to search inside your documents." with a "Choose folders" button. Name matches work as usual. |
 | Search view | Some folders skipped (permissions) | Results still show. Small notice: "Some folders couldn't be searched because you don't have permission." (FR-6) |
 | Preview Panel | No file selected, or a folder selected (EARS-02) | Centered message: "Select a file to preview". |
@@ -98,7 +104,7 @@ Behavioral. Visual specs are in `DESIGN.md` → Components.
 | Preview Panel | No text preview | Details, then a plain reason: "No preview for this file type", "This file can't be read", or "Stored only in OneDrive". Online-only files are never downloaded. |
 | Preview Panel | Loading | Details appear at once. The text area shows a skeleton until the text arrives. |
 | Status bar | First indexing | "Reading your documents: 340 of 2,100" with a progress bar. |
-| Status bar | Idle | "Index up to date · 2,100 documents". |
+| Status bar | Idle | "Up to date · 2,100 documents". |
 | Status bar | Updating on startup | "Checking for changed documents…" |
 | Global | Backend not responding | Banner: "The search stopped working. Trying again…". Browsing that doesn't need the backend stays usable. When it recovers, the banner disappears and the Index is intact (NFR-10). |
 | Global | Index format changed after an update | One-time notice: "Your documents are being re-read for the new version." (FR-20) |
@@ -222,6 +228,6 @@ Dana is browsing `Documents › Volunteering` in the browse view.
 2. She clicks a subfolder once. The panel still shows "Select a file to preview", because a folder isn't a file.
 3. She presses ↓ to select `photo.jpg`. The panel shows its details and "No preview for this file type".
 4. She types "xyz123" in the Search Bar and presses Enter. No Filters are active.
-5. **Climax:** the main list shows "No matching files found" with the suggestions "Try different words" and "Check that the folder is indexed", instead of unrelated files. She trusts that the file isn't there and rewords her search.
+5. **Climax:** the main list shows "No matching files found" with "Try different words" and the "Can't find a file you know is there?" box, instead of unrelated files. She trusts that the file isn't there and rewords her search.
 
 Failure: she presses Esc while the search is still running. The search stops with the notice "Search stopped", and "No matching files found" doesn't appear, because the search didn't finish.

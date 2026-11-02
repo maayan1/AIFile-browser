@@ -4,7 +4,7 @@ description: Offline Windows 11 file browser that finds documents by what the us
 title: "DESIGN: File Browser 2.0"
 status: final
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-11-01
 sources:
   - ../../prds/prd-AIFile-browser-2026-10-26/prd.md
 colors:
@@ -164,7 +164,7 @@ Tailwind's 4-based spacing scale is inherited. The main window follows File Expl
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-Visual reference: [`mockups/key-search.html`](mockups/key-search.html) (English and mirrored Hebrew), [`mockups/key-states.html`](mockups/key-states.html), [`mockups/key-first-run.html`](mockups/key-first-run.html). This file wins on any conflict with a mockup.
+Visual reference: [`mockups/key-search.html`](mockups/key-search.html) (English and mirrored Hebrew), [`mockups/key-states.html`](mockups/key-states.html), [`mockups/key-first-run.html`](mockups/key-first-run.html), [`mockups/key-search-folders.html`](mockups/key-search-folders.html), [`mockups/key-date-only.html`](mockups/key-date-only.html). This file wins on any conflict with a mockup.
 
 - Rows are `{spacing.row-height}` (36px) high, a little taller than File Explorer, for easier clicking.
 - The Search Bar is `{spacing.search-height}` (44px) high and takes the remaining width of the top bar, up to 640px.
@@ -193,7 +193,7 @@ Brand-layer components:
 - **Close Match label.** Small tag "Close match", `{colors.close-match}` on `{colors.close-match-foreground}`, `{rounded.sm}`.
 - **Notice banner.** Full-width strip above the Result List, `{colors.notice-info}`, info icon, one sentence.
 - **Preview Panel.** `{colors.surface-pane}`, `{spacing.preview-width}` wide. File icon and name in `{typography.title}`, then a details block (location, type, size, modified date) in `{typography.body-sm}`, then the text preview in `{typography.excerpt}` inside a `ScrollArea`. The empty state centers "Select a file to preview" in `muted-foreground`.
-- **Status bar.** 28px high, `{colors.surface-pane}`. Shows the indexing progress text and a thin `Progress` bar in `{colors.primary}`. When idle: "Index up to date · 2,100 documents".
+- **Status bar.** 28px high, `{colors.surface-pane}`. Shows the indexing progress text and a thin `Progress` bar in `{colors.primary}`. When idle: "Up to date · 2,100 documents".
 - **Empty state.** Centered in the main list: an outline icon, one `{typography.body}` sentence and up to two buttons (secondary variant).
 - **Folder chooser** (first run). A `Dialog` with a checkbox list of folders (Documents and Desktop pre-checked), an "Add folder…" button, and one primary button.
 
