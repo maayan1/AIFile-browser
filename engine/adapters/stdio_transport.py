@@ -6,7 +6,8 @@
   log, so a stray ``print()`` (or a native library writing to fd 1) can never
   corrupt the protocol stream.
 - All protocol output goes through one queue drained by one writer thread.
-- ``ping`` is answered here: it is transport, not a product rule.
+- ``ping`` is answered here: it is transport, not a product rule. ``status`` is a
+  fixed placeholder here until indexing arrives.
 """
 
 from __future__ import annotations
@@ -42,9 +43,15 @@ def handle_ping(request: Message) -> Message:
     return reply
 
 
+def handle_status(request: Message) -> Message:
+    # Placeholder snapshot until indexing exists (AD-16): nothing is running and nothing is indexed.
+    return {"id": request["id"], "type": "statusReport", "phase": "idle", "documentCount": 0}
+
+
 # Dispatch table: request type -> handler returning the terminal reply.
 HANDLERS: dict[str, Handler] = {
     "ping": handle_ping,
+    "status": handle_status,
 }
 
 
@@ -182,7 +189,12 @@ class StdioTransport:
     # ----- input ------------------------------------------------------------
 
     def serve_forever(self) -> None:
-        """Read requests until stdin closes; reply to each with exactly one terminal message."""
+        """Read requests until stdin closes; reply to each with exactly one terminal message.
+
+        Requests are handled one at a time on this reader thread, and the shell treats a ping
+        unanswered within its ping timeout (5 s) as a hang. Any handler that can take longer than
+        a few seconds must run off this thread (AD-10).
+        """
         for raw in iter(self._stdin.readline, b""):
             reply = self.handle_line(raw)
             if reply is not None:

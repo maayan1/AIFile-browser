@@ -12,3 +12,13 @@ tauri-build = { version = "=2.7.4", features = [] }
 tauri = { version = "=2.12.5", features = [] }
 tauri-plugin-single-instance = "=2.5.5"
 serde_json = "1"
+
+# Job Objects for the engine process tree (Story 1.2). Already in Cargo.lock via Tauri.
+# Win32_Security is needed only because CreateJobObjectW takes SECURITY_ATTRIBUTES.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }

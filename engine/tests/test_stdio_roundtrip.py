@@ -118,6 +118,11 @@ def test_hebrew_text_is_echoed_identically_as_utf8(engine: Engine) -> None:
     assert json.loads(raw.decode("utf-8")) == {"id": "a2", "type": "pong", "text": HEBREW}
 
 
+def test_status_gets_status_report(engine: Engine) -> None:
+    engine.send({"id": "s1", "type": "status"})
+    assert engine.read() == {"id": "s1", "type": "statusReport", "phase": "idle", "documentCount": 0}
+
+
 def test_unknown_type_is_rejected_and_engine_keeps_running(engine: Engine) -> None:
     engine.send({"id": "a3", "type": "nope"})
     assert engine.read() == {"id": "a3", "type": "error", "code": "unknownRequest", "data": {}}

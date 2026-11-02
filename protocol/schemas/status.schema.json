@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Status",
+  "description": "Request: a snapshot of what the engine is doing. The UI sends it after every ready (AD-16).",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "status" }
+  },
+  "required": ["id", "type"],
+  "additionalProperties": false
+}

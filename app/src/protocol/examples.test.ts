@@ -1,6 +1,6 @@
 import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
-import { ProtocolClient, type Transport } from "./client";
+import { EngineStoppedError, ProtocolClient, type EngineState, type Transport } from "./client";
 
 // Loaded through Vite so the test needs no Node file APIs.
 const schemas = import.meta.glob<Record<string, unknown>>("../../../protocol/schemas/*.schema.json", {
@@ -46,9 +46,16 @@ describe("protocol examples", () => {
   });
 });
 
-function fakeTransport() {
+/** State half of a transport: the engine is running and no state change is ever pushed. */
+const runningState: Pick<Transport, "subscribeState" | "currentState"> = {
+  subscribeState: async () => () => {},
+  currentState: async () => "running",
+};
+
+function fakeTransport(initialState: EngineState = "running") {
   const sent: string[] = [];
   let onLine: (line: string) => void = () => {};
+  let onState: (state: EngineState) => void = () => {};
   const transport: Transport = {
     send: async (line) => {
       sent.push(line);
@@ -60,8 +67,20 @@ function fakeTransport() {
       };
     },
     lastReady: async () => '{"id":null,"type":"ready","protocolVersion":1}',
+    subscribeState: async (handler) => {
+      onState = handler;
+      return () => {
+        onState = () => {};
+      };
+    },
+    currentState: async () => initialState,
   };
-  return { transport, sent, deliver: (line: string) => onLine(line) };
+  return {
+    transport,
+    sent,
+    deliver: (line: string) => onLine(line),
+    pushState: (state: EngineState) => onState(state),
+  };
 }
 
 describe("ProtocolClient", () => {
@@ -104,6 +123,7 @@ describe("ProtocolClient", () => {
         onLine(readyLine); // live event lands between subscribe and lastReady
         return readyLine;
       },
+      ...runningState,
     };
     const client = new ProtocolClient(transport);
     const events: unknown[] = [];
@@ -124,6 +144,7 @@ describe("ProtocolClient", () => {
         return () => {};
       },
       lastReady: async () => null,
+      ...runningState,
     };
     const client = new ProtocolClient(transport, () => "f1");
     const events: unknown[] = [];
@@ -133,5 +154,88 @@ describe("ProtocolClient", () => {
     expect(() => onLine('{"id":"f1","type":"pong"}')).not.toThrow();
     expect(events).toEqual([]);
     expect((client as unknown as { pending: Map<string, unknown> }).pending.size).toBe(0);
+  });
+
+  it("rejects every pending request with EngineStoppedError when the engine restarts", async () => {
+    const { transport, deliver, pushState } = fakeTransport();
+    let n = 0;
+    const client = new ProtocolClient(transport, () => `r${++n}`);
+    const states: EngineState[] = [];
+    client.onState((s) => states.push(s));
+    await client.start();
+    const first = client.request({ type: "ping" });
+    const second = client.request({ type: "status" });
+    pushState("restarting");
+    await expect(first).rejects.toBeInstanceOf(EngineStoppedError);
+    await expect(second).rejects.toBeInstanceOf(EngineStoppedError);
+    // A late reply from the killed engine is ignored.
+    expect(() => deliver('{"id":"r1","type":"pong"}')).not.toThrow();
+    expect(states).toEqual(["running", "restarting"]);
+    expect((client as unknown as { pending: Map<string, unknown> }).pending.size).toBe(0);
+  });
+
+  it("rejects pending requests when the engine stops for good", async () => {
+    const { transport, pushState } = fakeTransport();
+    const client = new ProtocolClient(transport);
+    await client.start();
+    const request = client.request({ type: "ping" });
+    pushState("stopped");
+    await expect(request).rejects.toBeInstanceOf(EngineStoppedError);
+  });
+
+  it("sends status with a generated id", async () => {
+    const { transport, sent, deliver } = fakeTransport();
+    const client = new ProtocolClient(transport, () => "s1");
+    await client.start();
+    const reply = client.request({ type: "status" });
+    expect(sent.map((l) => JSON.parse(l))).toEqual([{ type: "status", id: "s1" }]);
+    deliver('{"id":"s1","type":"statusReport","phase":"idle","documentCount":0}');
+    await expect(reply).resolves.toEqual({ id: "s1", type: "statusReport", phase: "idle", documentCount: 0 });
+  });
+
+  it("reports the current state on start unless a live state arrived first", async () => {
+    const { transport } = fakeTransport("restarting");
+    const client = new ProtocolClient(transport);
+    const states: EngineState[] = [];
+    client.onState((s) => states.push(s));
+    await client.start();
+    expect(states).toEqual(["restarting"]);
+
+    let push: (state: EngineState) => void = () => {};
+    const racing: Transport = {
+      send: async () => {},
+      subscribe: async () => () => {},
+      lastReady: async () => null,
+      subscribeState: async (handler) => {
+        push = handler;
+        return () => {};
+      },
+      currentState: async () => {
+        push("running"); // live change lands before the fetched (older) state
+        return "restarting";
+      },
+    };
+    const late = new ProtocolClient(racing);
+    const lateStates: EngineState[] = [];
+    late.onState((s) => lateStates.push(s));
+    await late.start();
+    expect(lateStates).toEqual(["running"]);
+  });
+
+  it("forgets the old engine's ready on restart and delivers the new one", async () => {
+    const readyLine = '{"id":null,"type":"ready","protocolVersion":1}';
+    const { transport, deliver, pushState } = fakeTransport();
+    const client = new ProtocolClient(transport);
+    const readySeen = () => (client as unknown as { readySeen: boolean }).readySeen;
+    const events: unknown[] = [];
+    client.onEvent((e) => events.push(e));
+    await client.start(); // replays the cached ready
+    expect(readySeen()).toBe(true);
+    pushState("restarting");
+    expect(readySeen()).toBe(false);
+    pushState("running");
+    deliver(readyLine);
+    expect(events).toHaveLength(2);
+    expect(readySeen()).toBe(true);
   });
 });

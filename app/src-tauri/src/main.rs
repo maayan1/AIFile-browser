@@ -1,7 +1,13 @@
 // No console window in release builds on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(not(windows))]
+compile_error!("File Browser 2 targets Windows 11 only: the engine supervisor uses Job Objects.");
+
 mod engine;
+mod job;
+
+use std::sync::Arc;
 
 use tauri::Manager;
 
@@ -16,20 +22,29 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
-        .manage(engine::EngineState::default())
-        .invoke_handler(tauri::generate_handler![engine::engine_send, engine::engine_ready])
+        .invoke_handler(tauri::generate_handler![
+            engine::engine_send,
+            engine::engine_ready,
+            engine::engine_state
+        ])
         .setup(|app| {
-            // Without uv the window still opens; it just shows the engine as not ready.
-            if let Err(err) = engine::spawn(app.handle()) {
-                eprintln!("engine: could not start: {err}");
-            }
+            // The supervisor owns the engine from here on: spawn, liveness, restart, kill (AD-14).
+            // Without uv the window still opens; the spawn failures are logged and the banner shows.
+            let sink = Arc::new(engine::TauriSink(app.handle().clone()));
+            app.manage(engine::Supervisor::start(
+                engine::app_command_factory(),
+                engine::Timings::default(),
+                sink,
+            ));
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building the application")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
-                engine::shutdown(app);
+                if let Some(supervisor) = app.try_state::<engine::Supervisor>() {
+                    supervisor.stop();
+                }
             }
         });
 }
