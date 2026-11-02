@@ -336,7 +336,7 @@ The Preview Panel sits beside the file list and the Result List. When the user s
 
 | ID | Area | Requirement |
 |---|---|---|
-| NFR-1 | Privacy | The app makes **zero network connections** to other devices or the internet during install and use: no telemetry, no crash reporting, no update checks. "The app" means the app process, its WebView2 component and the Python backend. Windows itself and programs the user opens from the app (FR-3) are not counted. Verified with the network disabled and by firewall log. |
+| NFR-1 | Privacy | The app makes **zero network connections** to other devices or the internet during install and use: no telemetry, no crash reporting, no update checks. "The app" means the app process, its WebView2 component and the Python backend. Windows itself and programs the user opens from the app (FR-3) are not counted. The WebView2 runtime's own updater (the Microsoft EdgeUpdate service) is a Windows component and is not counted. Connections made by the app's WebView2 processes are counted: a Phase 1 check records them with a firewall log and disables each by configuration, and any that can't be disabled is reported to the author before Phase 2. Verified with the network disabled and by firewall log. |
 | NFR-2 | Performance: Smart Search | Results in **< 6 seconds** on the Baseline PC with ~5,000 indexed Supported Documents. Measured from pressing Enter to the Result List on screen, and met by 90% of the SM-1 queries, excluding the first search after launch. The first search after launch takes **≤ 10 seconds**. |
 | NFR-3 | Performance: Filename Search | Completes in **< 6 seconds** for a folder tree of ~50,000 files on the Baseline PC, measured the same way as NFR-2. `[ASSUMPTION: same target as Smart Search]` |
 | NFR-4 | Performance: indexing | ~5,000 Supported Documents fully indexed in **< 30 minutes** on the Baseline PC, in the background. The interface never freezes for more than 0.5 s during indexing. `[ASSUMPTION: 0.5 s threshold]` |
@@ -602,3 +602,8 @@ The author reviewed the UX design with the UX designer. These changes bring the 
 | "Can't find a file you know is there?" explanation under "No matching files found" and at the end of any Result List | Explains why a file might be missing (scanned, unsupported type, folder not searched) at the moment it matters. It informs and never asks the user to change anything. | FR-17 |
 | Validation fix (2026-11-02): clearing the Date Filter of a date-only search clears the whole search | Otherwise Smart Search ran on filler words and showed "No matching files found" | FR-23, FR-15 |
 | Validation fix (2026-11-02): "Date-only search" added to the Glossary | Two FRs depend on the term | §3 |
+
+### 12.11 Clarification from the architecture review (author, 2026-11-02)
+| Change | Reason | Where |
+|---|---|---|
+| The WebView2 runtime's own updater counts as Windows; connections from the app's WebView2 processes are counted, measured in Phase 1 and disabled by configuration | The architecture review found that WebView2 contacts Microsoft servers beyond SmartScreen. The author chose to keep the runtime updated by Windows rather than ship a fixed runtime that never gets security updates. | NFR-1 |
