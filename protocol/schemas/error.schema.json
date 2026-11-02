@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ErrorMessage",
+  "description": "Terminal error reply. id echoes the request id, or is null when the request could not be read. code is listed in protocol/codes.json.",
+  "type": "object",
+  "properties": {
+    "id": { "type": ["string", "null"] },
+    "type": { "const": "error" },
+    "code": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9]*$" },
+    "data": { "type": "object", "additionalProperties": true }
+  },
+  "required": ["id", "type", "code", "data"],
+  "additionalProperties": false
+}

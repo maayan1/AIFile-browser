@@ -182,19 +182,21 @@ flowchart TD
 | Name | Version |
 | --- | --- |
 | Windows (only platform) | 11, 64-bit |
-| Tauri | 2.12 (pin patch at the first Phase 1 story) |
-| React | 19.3 (pin patch at Phase 1) |
-| TypeScript | 7.x for type-checking, with `@typescript/typescript6` where lint tooling needs the compiler API (pin at Phase 1) |
-| Tailwind CSS | 4.3 |
-| Python (engine) | 3.14 (pin patch at Phase 1) |
+| Tauri | `tauri` 2.12.5, `tauri-build` 2.7.4, `tauri-plugin-single-instance` 2.5.5, `@tauri-apps/cli` 2.12.4, `@tauri-apps/api` 2.12.4 (pinned in Story 1.1) |
+| React | `react` / `react-dom` 19.3.1, `@types/react` / `@types/react-dom` 19.3.0 |
+| TypeScript | 7.0.2 for type-checking; `@typescript/typescript6` only if lint tooling later needs the compiler API (not installed: no lint setup yet) |
+| Tailwind CSS | `tailwindcss` / `@tailwindcss/vite` 4.3.3 |
+| Vite / test tooling (app) | `vite` 8.3.5, `@vitejs/plugin-react` 6.2.1, `vitest` 5.0.5, `json-schema-to-typescript` 16.0.0, `ajv` 8.20.0; package manager npm |
+| Python (engine) | 3.14.10; dev only: `pytest` 9.2.0, `jsonschema` 4.26.0 |
 | ONNX Runtime (CPU) | 1.31 (pin patch at Phase 1) |
 | tokenizers | 0.23 (pin at Phase 1) |
 | NumPy | 2.5 (pin at Phase 1) |
 | Embedding model | granite-embedding-97m-multilingual-r2 (fallback multilingual-e5-small), frozen after the Phase 3–4 bake-off |
 | python-docx | 1.2 |
 | PDF text extraction | chosen by the Phase 3 Hebrew spike |
-| PyInstaller | 6.22 (pin at Phase 1), `--onedir --clean` |
-| uv (dev environment) | latest at Phase 1 |
+| PyInstaller | 6.22.3, `--onedir --clean` (recorded in Story 1.1; installed in Story 3.9) |
+| uv (dev environment) | 0.13.6 |
+| Rust toolchain (shell build) | stable-msvc (1.99.1 at Story 1.1), VS 2022 Build Tools C++ workload |
 
 ## Structural Seed
 

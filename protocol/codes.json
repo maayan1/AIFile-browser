@@ -1,0 +1,6 @@
+{
+  "errorCodes": [
+    "unknownRequest",
+    "invalidRequest"
+  ]
+}

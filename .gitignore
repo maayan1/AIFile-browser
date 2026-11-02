@@ -1,0 +1,8 @@
+node_modules/
+dist/
+target/
+.venv/
+__pycache__/
+app/src/protocol/generated.ts
+app/src-tauri/gen/
+.pytest_cache/

@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Ping",
+  "description": "Request: liveness check. Optional text is echoed back unchanged in the pong.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "ping" },
+    "text": { "type": "string" }
+  },
+  "required": ["id", "type"],
+  "additionalProperties": false
+}

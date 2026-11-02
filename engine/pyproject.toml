@@ -1,0 +1,19 @@
+[project]
+name = "file-browser-2-engine"
+version = "0.1.0"
+description = "File Browser 2.0 engine: hexagonal core and adapters, spoken to over stdin/stdout JSON lines."
+requires-python = "==3.14.*"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest==9.2.0",
+    "jsonschema==4.26.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

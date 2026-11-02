@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Core defaults only. No shell, process or spawn permission is ever granted to JavaScript (AD-14).",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
