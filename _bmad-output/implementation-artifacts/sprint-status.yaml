@@ -1,0 +1,99 @@
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created, ready for development
+#   - in-progress: Developer actively working on implementation
+#   - review: Implementation complete, ready for review
+#   - done: Story completed
+
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when its first story starts (via build's sprint sync)
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates the next story after the previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; the status view surfaces open ones
+generated: 11-02-2026 14:54
+last_updated: 11-02-2026 14:54
+project: AIFile browser
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+development_status:
+  epic-1: backlog
+  1-1-set-up-the-project-and-connect-the-ui-to-the-engine: backlog
+  1-2-recover-when-the-engine-stops: backlog
+  1-3-main-window-layout-and-visual-style: backlog
+  1-4-browse-a-folder: backlog
+  1-5-navigate-folders: backlog
+  1-6-open-a-file-and-show-it-in-its-folder: backlog
+  1-7-handle-folders-i-can-t-open: backlog
+  1-8-browse-with-the-keyboard-alone: backlog
+  1-9-confirm-the-app-makes-no-network-connections: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-search-names-in-this-folder-and-its-subfolders: backlog
+  2-2-see-name-results-and-no-matching-files-found: backlog
+  2-3-cancel-a-search-and-keep-going-past-folders-i-can-t-open: backlog
+  2-4-keep-name-search-fast-in-very-large-folders: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-choose-folders-on-first-launch: backlog
+  3-2-read-text-from-word-text-and-markdown-files: backlog
+  3-3-read-hebrew-pdfs-correctly: backlog
+  3-4-turn-documents-into-searchable-passages-with-the-local-model: backlog
+  3-5-read-my-documents-in-the-background: backlog
+  3-6-never-lose-the-app-s-work-after-a-crash: backlog
+  3-7-keep-up-with-new-and-changed-documents: backlog
+  3-8-see-and-manage-search-folders: backlog
+  3-9-package-the-engine-and-check-it-on-a-clean-pc: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-preview-panel-with-file-details-and-select-a-file-to-preview: backlog
+  4-2-preview-the-start-of-a-document-s-text: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-search-my-documents-by-meaning: backlog
+  5-2-see-why-each-document-matched: backlog
+  5-3-show-close-matches-and-leave-out-unrelated-results: backlog
+  5-4-help-me-when-nothing-is-found: backlog
+  5-5-measure-search-quality-and-choose-the-model: backlog
+  epic-5-retrospective: optional
+
+  epic-6: backlog
+  6-1-recognize-dates-in-my-search: backlog
+  6-2-filter-results-by-date-and-type: backlog
+  6-3-list-my-documents-from-a-time-when-i-don-t-remember-the-topi: backlog
+  epic-6-retrospective: optional
+
+  epic-7: backlog
+  7-1-show-the-whole-interface-in-hebrew-or-english: backlog
+  7-2-right-to-left-layout-and-correct-mixed-hebrew-and-english-te: backlog
+  7-3-meet-the-accessibility-floor: backlog
+  epic-7-retrospective: optional
+
+  epic-8: backlog
+  8-1-install-with-one-offline-installer: backlog
+  8-2-update-to-a-new-version-and-keep-my-folders: backlog
+  8-3-uninstall-cleanly: backlog
+  8-4-release-check-zero-connections-and-first-run-usability: backlog
+  epic-8-retrospective: optional

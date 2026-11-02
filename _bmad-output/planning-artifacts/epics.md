@@ -454,6 +454,12 @@ So that I know right away whether the file is there.
 **When** I press Esc or click ✕ in the Search Bar
 **Then** the search view closes and the browse view of the current folder returns
 
+**Given** no Correct Display test list exists yet
+**When** this story is done
+**Then** `fixtures/` contains the fixed list of Correct Display test names, created by this story: Hebrew, English and mixed-direction file and folder names with extensions, numbers and nested paths (for example `סיכום ישיבה 3.docx`, `Budget תקציב 2025.pdf`, `Documents › התנדבות › Q3`) (PRD Glossary, Correct Display)
+**And** in the English interface, every name on the list shows correctly in the browse list and in Name matches: logical order, extension at the end, path segments in real order, each isolated; this completes the PRD Phase 2 exit (FR-1, FR-6, PRD §8.3 Phase 2)
+**And** Story 7.2 reuses the same list for both layouts and adds reference screenshots
+
 ### Story 2.3: Cancel a search, and keep going past folders I can't open
 
 As Yossi,
@@ -625,7 +631,11 @@ So that I never lose its work and never get a broken app.
 **When** the engine starts
 **Then** the bad files are quarantined or the old version is not loaded, and a rebuild starts with `indexingActive` set; the engine never crashes on load (AD-6, NFR-8)
 
-**Given** a synthetic collection of ~5,000 documents on the Baseline PC
+**Given** no performance collection exists yet
+**When** this story is done
+**Then** `fixtures/` contains a generator script, created by this story, that produces ~5,000 synthetic Hebrew and English documents (TXT, DOCX, text-based PDF, MD) with spread-out modified dates, plus a few unreadable and unsupported files; no personal documents (C-7)
+
+**Given** the generated collection of ~5,000 documents on the Baseline PC
 **When** it is indexed from scratch, including one forced close halfway
 **Then** it finishes in under 30 minutes in total and the app stays at or under 2 GB RAM; both are measured and recorded (NFR-4, NFR-6, SM-3, PRD §8.3 Phase 3)
 
@@ -760,7 +770,12 @@ So that I find documents I can't name.
 
 **Acceptance Criteria:**
 
-**Given** an indexed collection
+**Given** no SM-1 test set exists yet
+**When** this story is done
+**Then** `fixtures/` contains, created by this story: a synthetic collection of at least 500 mixed Hebrew and English documents including look-alike documents on the same topics, and 30 SM-1 queries (15 Hebrew, 15 English, some with Date Phrases, at least 5 one-word queries such as "pension"), each with its expected file (SM-1, C-7)
+**And** the author reviews and approves the queries and their expected files before any SM-1 result is recorded, because "the right file" is a product decision
+
+**Given** an indexed collection (the SM-1 collection or any Indexed Folder)
 **When** I press Enter on a query
 **Then** the same `search` request now also returns `contentMatches` after `nameMatches`, and the Result List shows "Name matches (n)" and "Content matches (n)"; a one-word query that matches names still shows content matches (FR-12, AD-15, UX-DR9)
 **And** the engine embeds the query with `embed_query`, scores all Passages by dot product (brute force) and gives each document its best Passage's score (AD-7, AD-8)
@@ -813,8 +828,12 @@ So that I can trust what the app shows me.
 **When** a document's score is below it
 **Then** it is not shown (FR-17, AD-8)
 
-**Given** the fixed list of at least 10 nonsense queries in `fixtures/`
-**When** each is searched against the SM-1 Index
+**Given** no nonsense-query list exists yet
+**When** this story is done
+**Then** `fixtures/` contains a fixed list of at least 10 nonsense queries, created by this story and reviewed by the author, that includes `xyz123` (FR-17)
+
+**Given** that list
+**When** each query is searched against the Index built from the SM-1 collection (Story 5.1)
 **Then** each returns no content matches, and `xyz123` always does (FR-17)
 
 ### Story 5.4: Help me when nothing is found
@@ -847,7 +866,7 @@ So that Hebrew and English search meets its target before release.
 
 **Acceptance Criteria:**
 
-**Given** `fixtures/` with a synthetic collection of at least 500 mixed Hebrew and English documents including look-alikes, and 30 SM-1 queries (15 Hebrew, 15 English, some with Date Phrases, at least 5 one-word queries such as "pension")
+**Given** the SM-1 collection and queries from Story 5.1
 **When** the SM-1 runner executes
 **Then** it reports the share of queries whose expected file is in the top 5, and the one-word subset separately; queries that contain Date Phrases run as plain text until Story 6.1, and this is recorded as the first SM-1 run (SM-1, PRD §8.3 Phase 4)
 
@@ -982,7 +1001,7 @@ So that everything reads naturally.
 **When** any screen is shown
 **Then** the whole window mirrors (nav pane on the right, Preview Panel on the left), directional icons mirror and non-directional ones don't, and Alt+← / Alt+→ keep their meaning (FR-18, UX-DR23)
 
-**Given** the fixed list of Correct Display test names in `fixtures/`
+**Given** the fixed list of Correct Display test names from Story 2.2
 **When** they appear in the browse list, both result groups, date-only results and the Preview Panel, in both layouts
 **Then** each name, path segment and Passage is isolated, extensions stay at the end, path segments keep the real order, and numbers in progress text don't flip, compared against reference screenshots (FR-18, PRD Glossary Correct Display)
 
