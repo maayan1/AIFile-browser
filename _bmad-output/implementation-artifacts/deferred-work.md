@@ -13,3 +13,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-2-recover-when-the-engine-stops.md`
   summary: In Story 3.9 (packaged sidecar), close the spawn-before-job-assign race by starting the engine suspended or with `PROC_THREAD_ATTRIBUTE_JOB_LIST`.
   evidence: `engine.rs` accepts the race because `uv` takes milliseconds before its first child. A packaged engine that starts children at once could escape the job. Review finding B11.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-3-main-window-layout-and-visual-style.md`
+  summary: Clamp the first-launch window size and position to the monitor's work area, because the default 1280×800 (and even the 960×600 minimum height) can exceed small screens, such as 1366×768 at 125% scaling.
+  evidence: At 1366×768 and 125% the logical work area is about 1093×576, so the window opens partly off-screen. The 1.1 default of 1200×800 overflowed too. It belongs with UX-DR24's remembered window size and position (Story 4.1). Review finding E3.

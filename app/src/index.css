@@ -1,1 +1,163 @@
 @import "tailwindcss";
+
+/* Test files hold sample class strings (style-rules.test.ts); keep them out of the build. */
+@source not "./**/*.test.{ts,tsx}";
+
+/*
+ * DESIGN.md tokens as the shadcn/ui theme (UX-DR1..3). Brand values override shadcn v4's
+ * "neutral" defaults; every other token keeps the neutral default. Light/dark follows the
+ * Windows app mode through `prefers-color-scheme`; there is no JS toggle.
+ * Logical properties only, so `dir="rtl"` on <html> mirrors the window (FR-18).
+ */
+:root {
+  --background: #ffffff;
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: #0f6cbd;
+  --primary-foreground: #ffffff;
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: var(--primary);
+
+  --surface-pane: #f3f3f3;
+  --selection: #cfe4fa;
+  --notice-info: #ebf3fc;
+  --notice-info-foreground: #0f548c;
+  --close-match: #fff4ce;
+  --close-match-foreground: #7a4d00;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #1c1c1c;
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: #479ef5;
+    --primary-foreground: #0a1a2a;
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+
+    --surface-pane: #202020;
+    --selection: #0f3a5f;
+    --notice-info: #082338;
+    --notice-info-foreground: #9ccbf8;
+    --close-match: #3d2e00;
+    --close-match-foreground: #ffd86b;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface-pane: var(--surface-pane);
+  --color-selection: var(--selection);
+  --color-notice-info: var(--notice-info);
+  --color-notice-info-foreground: var(--notice-info-foreground);
+  --color-close-match: var(--close-match);
+  --color-close-match-foreground: var(--close-match-foreground);
+
+  /* Segoe UI Variable ships with Windows 11 and covers Hebrew; nothing is downloaded. */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+
+  /* Type ramp in rem, so a root-size change scales it (body 15px at the default 16px root). */
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.45;
+  --text-body-sm: 0.8125rem;
+  --text-body-sm--line-height: 1.4;
+  --text-search: 1.125rem;
+  --text-search--line-height: 1.3;
+  --text-excerpt: 0.875rem;
+  --text-excerpt--line-height: 1.5;
+  --text-group-label: 0.8125rem;
+  --text-group-label--line-height: 1.3;
+  --text-group-label--font-weight: 600;
+  --text-group-label--letter-spacing: 0.02em;
+  --text-title: 1.25rem;
+  --text-title--line-height: 1.25;
+  --text-title--font-weight: 600;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* Layout sizes: widths in px, heights in rem so they grow with text. */
+  --spacing-nav: 240px;
+  --spacing-preview: 320px;
+  --spacing-row: 2.25rem;
+  --spacing-search: 2.75rem;
+  --spacing-status: 1.75rem;
+}
+
+@layer base {
+  html {
+    color-scheme: light dark;
+  }
+
+  html,
+  body,
+  #root {
+    block-size: 100%;
+  }
+
+  /* The window never scrolls; each pane scrolls on its own. */
+  body {
+    margin: 0;
+    overflow: hidden;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+  }
+
+  *,
+  ::before,
+  ::after,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-border);
+  }
+
+  /* UX-DR22: focus is always shown as a 2px primary ring. */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+}
