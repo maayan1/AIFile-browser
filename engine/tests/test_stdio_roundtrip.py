@@ -186,7 +186,8 @@ def test_engine_exits_cleanly_when_stdin_closes(engine: Engine) -> None:
 
 # The real engine with a file system whose Documents folder is a test folder, whose "SLOW"
 # folder takes minutes to enumerate (1 ms per entry), so a listing is still running when the
-# test sends its next request, and whose "NOTREADY" folder is on a drive that isn't ready.
+# test sends its next request, whose "HANG" folder blocks for a minute without checking its
+# cancel token, and whose "NOTREADY" folder is on a drive that isn't ready.
 TEST_FS_SCRIPT = """
 import os, sys, time
 sys.path.insert(0, os.getcwd())
@@ -206,10 +207,17 @@ class TestFileSystem(WindowsFileSystem):
     def resolve(self, path):
         if path == "NOTREADY":
             raise OSError(None, "The device is not ready", None, ERROR_NOT_READY)
-        return path if path == "SLOW" else super().resolve(path)
+        return path if path in ("SLOW", "HANG") else super().resolve(path)
 
     def list(self, path):
+        if path == "HANG":
+            return self._hang()
         return self._slow() if path == "SLOW" else super().list(path)
+
+    def _hang(self):
+        # Blocked as if inside scandir on a dead share: never checks its cancel token.
+        time.sleep(60)
+        yield from ()
 
     def _slow(self):
         for i in range(10**6):
@@ -318,6 +326,23 @@ def test_newer_list_folder_cancels_the_running_one(test_fs_engine: Engine, tmp_p
     assert latest["id"] == "s3" and latest["type"] == "folderListing"
     assert test_fs_engine.close() == 0
     assert no_schema_violations(tmp_path)
+
+
+def test_a_listing_stuck_in_the_os_does_not_hold_up_the_next_one(test_fs_engine: Engine, tmp_path: Path) -> None:
+    test_fs_engine.send({"id": "h1", "type": "listFolder", "path": "HANG"})
+    time.sleep(0.2)  # the stuck listing is under way
+    sent = time.monotonic()
+    test_fs_engine.send({"id": "h2", "type": "listFolder"})
+    assert test_fs_engine.read(timeout=3.0) == {"id": "h1", "type": "cancelled"}
+    latest = test_fs_engine.read(timeout=3.0)
+    assert latest["id"] == "h2" and latest["type"] == "folderListing"
+    assert time.monotonic() - sent < 2.0
+    # The engine still exits cleanly with the abandoned thread blocked, and h1 got one reply only.
+    assert test_fs_engine.close() == 0
+    assert test_fs_engine.lines.empty()
+    assert no_schema_violations(tmp_path)
+    # h1 really was stuck and abandoned, not cancelled while still queued.
+    assert "abandoned a listFolder" in (tmp_path / "engine.log").read_text(encoding="utf-8")
 
 
 def test_ping_is_answered_while_a_listing_runs(test_fs_engine: Engine) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from collections.abc import Iterator
 
 import pytest
@@ -83,6 +84,129 @@ def test_a_handler_finishing_after_its_cancel_yields_cancelled() -> None:
     assert sent.get(timeout=TIMEOUT) == {"id": "a", "type": "cancelled"}
     assert sent.get(timeout=TIMEOUT) == {"id": "b", "type": "pong"}
     ch.close()
+
+
+def stuck(started: threading.Event, release: threading.Event):  # type: ignore[no-untyped-def]
+    """A handler blocked as if inside an OS call: it never checks its token."""
+
+    def handle(request: Message, token: CancelToken) -> Message:
+        started.set()
+        release.wait(30)
+        return {"id": request["id"], "type": "pong"}
+
+    return handle
+
+
+def test_a_request_stuck_past_its_cancel_is_abandoned_and_the_next_one_runs() -> None:
+    ch, sent = channel()
+    started, release = threading.Event(), threading.Event()
+    try:
+        ch.submit({"id": "a", "type": "x"}, stuck(started, release))
+        assert started.wait(TIMEOUT)
+        ch.submit({"id": "b", "type": "x"}, reply_with("pong"))
+        # Both replies arrive while a is still blocked.
+        assert sent.get(timeout=2) == {"id": "a", "type": "cancelled"}
+        assert sent.get(timeout=2) == {"id": "b", "type": "pong"}
+        assert ch.abandoned == 1
+    finally:
+        release.set()
+    # When the OS call returns, the stuck thread's reply is dropped: a had its terminal reply.
+    deadline = time.monotonic() + TIMEOUT
+    while ch.abandoned and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert ch.abandoned == 0
+    assert sent.empty()
+    ch.submit({"id": "c", "type": "x"}, reply_with("pong"))
+    assert sent.get(timeout=TIMEOUT) == {"id": "c", "type": "pong"}
+    ch.close()
+
+
+def test_a_slow_request_that_ends_within_the_grace_period_is_not_abandoned() -> None:
+    sent: queue.Queue[Message] = queue.Queue()
+    ch = Channel("t", sent.put, abandon_after=2.0)
+    started, release = threading.Event(), threading.Event()
+    try:
+        ch.submit({"id": "a", "type": "x"}, stuck(started, release))
+        assert started.wait(TIMEOUT)
+        ch.submit({"id": "b", "type": "x"}, reply_with("pong"))
+        # a keeps running for a quarter of the grace period: nothing is sent meanwhile.
+        with pytest.raises(queue.Empty):
+            sent.get(timeout=0.5)
+        release.set()
+        assert sent.get(timeout=TIMEOUT) == {"id": "a", "type": "cancelled"}
+        assert sent.get(timeout=TIMEOUT) == {"id": "b", "type": "pong"}
+        assert ch.abandoned == 0
+    finally:
+        release.set()
+    ch.close()
+
+
+def test_no_watch_is_started_when_the_previous_request_already_ended() -> None:
+    def timers() -> set[threading.Thread]:
+        return {t for t in threading.enumerate() if isinstance(t, threading.Timer)}
+
+    before = timers()  # earlier tests' watches may still be counting down
+    ch, sent = channel()
+    for i in range(20):
+        ch.submit({"id": str(i), "type": "x"}, reply_with("pong"))
+        assert sent.get(timeout=TIMEOUT) == {"id": str(i), "type": "pong"}
+    assert timers() - before == set()
+    ch.close()
+
+
+def test_close_answers_and_abandons_a_stuck_latest_request() -> None:
+    ch, sent = channel()
+    started, release = threading.Event(), threading.Event()
+    try:
+        ch.submit({"id": "a", "type": "x"}, stuck(started, release))
+        assert started.wait(TIMEOUT)
+        began = time.monotonic()
+        ch.close(timeout=TIMEOUT)
+        assert time.monotonic() - began < 2
+        assert sent.get_nowait() == {"id": "a", "type": "cancelled"}
+        assert sent.empty()
+    finally:
+        release.set()
+
+
+def test_at_the_cap_the_channel_waits_for_the_stuck_request_again() -> None:
+    sent: queue.Queue[Message] = queue.Queue()
+    ch = Channel("t", sent.put, abandon_after=0.05, max_abandoned=1)
+    a_started, a_release = threading.Event(), threading.Event()
+    b_started, b_release = threading.Event(), threading.Event()
+    try:
+        ch.submit({"id": "a", "type": "x"}, stuck(a_started, a_release))
+        assert a_started.wait(TIMEOUT)
+        ch.submit({"id": "b", "type": "x"}, stuck(b_started, b_release))
+        assert sent.get(timeout=2) == {"id": "a", "type": "cancelled"}
+        assert b_started.wait(TIMEOUT)
+        ch.submit({"id": "c", "type": "x"}, reply_with("pong"))
+        # a still holds the only abandoned slot, so c waits behind b.
+        with pytest.raises(queue.Empty):
+            sent.get(timeout=0.5)
+        b_release.set()
+        assert sent.get(timeout=TIMEOUT) == {"id": "b", "type": "cancelled"}
+        assert sent.get(timeout=TIMEOUT) == {"id": "c", "type": "pong"}
+    finally:
+        a_release.set()
+        b_release.set()
+    ch.close()
+
+
+def test_close_does_not_wait_for_an_abandoned_thread() -> None:
+    ch, sent = channel()
+    started, release = threading.Event(), threading.Event()
+    try:
+        ch.submit({"id": "a", "type": "x"}, stuck(started, release))
+        assert started.wait(TIMEOUT)
+        ch.submit({"id": "b", "type": "x"}, reply_with("pong"))
+        assert sent.get(timeout=2)["id"] == "a"
+        assert sent.get(timeout=2)["id"] == "b"
+        began = time.monotonic()
+        ch.close(timeout=TIMEOUT)
+        assert time.monotonic() - began < 1
+    finally:
+        release.set()
 
 
 class RaisingFs:
