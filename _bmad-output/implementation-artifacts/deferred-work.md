@@ -34,6 +34,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-4-browse-a-folder.md`
   summary: Make a `listFolder` enumeration abandonable, so a blocking `scandir` (unreachable share, drive not ready) can't hold the channel thread while newer listings queue behind it (latest wins, AD-10).
   evidence: Review D1 (ECH2/BH1). `list_folder` checks its token only between entries, and the channel has one worker. Not reachable in 1.4, which lists only Documents; real once Story 1.5 adds typed and navigated paths. Medium from then on.
+  resolved: `spec-abandonable-listing.md` (2026-11-09, commit 3253844). A request stuck past its cancel is abandoned after 250 ms, so newer listings no longer queue behind it.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-4-browse-a-folder.md`
   summary: For Story 1.5: normalize incoming paths in the engine (AD-9), re-list the last folder (not Documents) after an engine restart, and choose a code other than `folderNotFound` for a drive that isn't ready or an unreachable share.
   evidence: Review D2 (BH9/BH2/BH4). `folderListing.path` echoes the request string, `BrowseSession` lists Documents on every `ready`, and every other `OSError` maps to `folderNotFound`. None is reachable in 1.4, where no request carries a path.
@@ -44,6 +45,7 @@
 - source_spec: none
   summary: Make a `listFolder` enumeration abandonable, so a blocking `scandir` (dead network share, drive not ready) can't hold the channel worker while newer listings queue behind it; build it right after Story 1.5.
   evidence: Split from Story 1.5 at the user's choice ("1–3 now, 4 next"). It touches only the engine's channel/queue and none of 1.5's navigation depends on it; it becomes reachable once 1.5 adds typed and navigated paths (review D1 of Story 1.4).
+  resolved: `spec-abandonable-listing.md` (2026-11-09, commit 3253844). A request stuck past its cancel is abandoned after 250 ms, so newer listings no longer queue behind it.
 
 ## Deferred from: code review of spec-1-5-navigate-folders.md (2026-11-09)
 
