@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { catalog, t } from "@/i18n/catalog";
 import { AppShell } from "./AppShell";
@@ -30,8 +30,10 @@ describe("AppShell", () => {
       expect(button.disabled).toBe(true);
       expect(button.title).toBe(t(key));
     }
+    // Scoped to the filter bar: the browse list also has a "Type" column header button.
+    const filters = within(screen.getByRole("group", { name: t("filter.label") }));
     for (const key of ["filter.date", "filter.type"] as const) {
-      expect(screen.getByRole<HTMLButtonElement>("button", { name: t(key) }).disabled).toBe(true);
+      expect(filters.getByRole<HTMLButtonElement>("button", { name: t(key) }).disabled).toBe(true);
     }
     const search = screen.getByRole("textbox", { name: t("search.label") });
     expect(search.getAttribute("placeholder")).toBe(t("search.placeholder"));

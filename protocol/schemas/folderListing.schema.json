@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FolderListing",
+  "description": "Terminal reply to listFolder: the folder's display path and its candidate entries, unsorted. Codes and data only; the UI words every type, size and date.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "folderListing" },
+    "path": { "type": "string", "minLength": 1 },
+    "entries": {
+      "type": "array",
+      "items": {
+        "oneOf": [{ "$ref": "#/definitions/folderEntry" }, { "$ref": "#/definitions/fileEntry" }]
+      }
+    }
+  },
+  "required": ["id", "type", "path", "entries"],
+  "additionalProperties": false,
+  "definitions": {
+    "modified": {
+      "title": "ModifiedTime",
+      "description": "Last-modified time, ISO 8601 with the local offset; null when unknown.",
+      "type": ["string", "null"],
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?([+-][0-9]{2}:[0-9]{2}|Z)$"
+    },
+    "folderEntry": {
+      "title": "FolderEntry",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "const": "folder" },
+        "modified": { "$ref": "#/definitions/modified" }
+      },
+      "required": ["name", "kind", "modified"],
+      "additionalProperties": false
+    },
+    "fileEntry": {
+      "title": "FileEntry",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "const": "file" },
+        "typeCode": {
+          "title": "FileTypeCode",
+          "enum": ["pdf", "word", "excel", "powerpoint", "text", "markdown", "image", "audio", "video", "archive", "other"]
+        },
+        "size": { "description": "Size in bytes.", "type": "integer", "minimum": 0 },
+        "modified": { "$ref": "#/definitions/modified" }
+      },
+      "required": ["name", "kind", "typeCode", "size", "modified"],
+      "additionalProperties": false
+    }
+  }
+}

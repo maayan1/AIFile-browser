@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ListFolder",
+  "description": "Request: the folders and files in one folder. Without path, the user's Documents folder. Latest wins: a newer listFolder ends a running one with cancelled.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "listFolder" },
+    "path": { "type": "string", "minLength": 1 }
+  },
+  "required": ["id", "type"],
+  "additionalProperties": false
+}

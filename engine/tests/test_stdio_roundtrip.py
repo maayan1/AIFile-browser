@@ -38,8 +38,8 @@ sys.exit(main.main())
 
 
 class Engine:
-    def __init__(self, log_dir: Path, args: list[str] | None = None) -> None:
-        env = dict(os.environ, FB2_LOG_DIR=str(log_dir), FB2_VALIDATE_PROTOCOL="1")
+    def __init__(self, log_dir: Path, args: list[str] | None = None, env: dict[str, str] | None = None) -> None:
+        env = dict(os.environ, FB2_LOG_DIR=str(log_dir), FB2_VALIDATE_PROTOCOL="1", **(env or {}))
         # stderr goes to a file, never an undrained pipe a large traceback could fill.
         self.stderr = open(log_dir / "engine-stderr.txt", "wb")
         self.started = time.monotonic()
@@ -180,3 +180,138 @@ def test_stray_print_goes_to_log_not_protocol(tmp_path: Path) -> None:
 
 def test_engine_exits_cleanly_when_stdin_closes(engine: Engine) -> None:
     assert engine.close() == 0
+
+
+# ----- listFolder (spec 1.4 I/O matrix) ------------------------------------
+
+# The real engine with a file system whose Documents folder is a test folder and whose "SLOW"
+# folder takes minutes to enumerate (1 ms per entry), so a listing is still running when the
+# test sends its next request.
+TEST_FS_SCRIPT = """
+import os, sys, time
+sys.path.insert(0, os.getcwd())
+import main
+from adapters.windows_fs import WindowsFileSystem
+from core.ports.filesystem import FsEntry
+
+class TestFileSystem(WindowsFileSystem):
+    def documents_folder(self):
+        return os.environ["FB2_TEST_DOCUMENTS"]
+
+    def list(self, path):
+        return self._slow() if path == "SLOW" else super().list(path)
+
+    def _slow(self):
+        for i in range(10**6):
+            time.sleep(0.001)
+            yield FsEntry(f"f{i}.txt", False, 1, None, 0x20, 0)
+
+main.WindowsFileSystem = TestFileSystem
+sys.exit(main.main())
+"""
+
+PROTOCOL_DIR = ENGINE_DIR.parent / "protocol"
+
+
+def assert_valid(message: dict) -> None:
+    import jsonschema
+
+    schema = json.loads((PROTOCOL_DIR / "schemas" / f"{message['type']}.schema.json").read_text(encoding="utf-8"))
+    jsonschema.Draft7Validator(schema).validate(message)
+
+
+def make_documents(tmp_path: Path) -> Path:
+    docs = tmp_path / "Documents"
+    docs.mkdir()
+    (docs / "Photos").mkdir()
+    (docs / "סיכום ישיבה 3.docx").write_bytes(b"x" * 38912)
+    (docs / "Budget תקציב.pdf").write_bytes(b"")
+    (docs / "~$סיכום ישיבה 3.docx").write_bytes(b"")
+    return docs
+
+
+@pytest.fixture
+def test_fs_engine(tmp_path: Path):
+    docs = make_documents(tmp_path)
+    eng = Engine(tmp_path, ["-c", TEST_FS_SCRIPT], env={"FB2_TEST_DOCUMENTS": str(docs)})
+    assert eng.read() == READY
+    eng.documents = docs  # type: ignore[attr-defined]
+    yield eng
+    eng.close()
+
+
+def no_schema_violations(log_dir: Path) -> bool:
+    return "violates its schema" not in (log_dir / "engine.log").read_text(encoding="utf-8")
+
+
+def test_list_folder_without_path_lists_documents(test_fs_engine: Engine, tmp_path: Path) -> None:
+    test_fs_engine.send({"id": "l1", "type": "listFolder"})
+    reply = test_fs_engine.read()
+    assert_valid(reply)
+    assert reply["id"] == "l1" and reply["type"] == "folderListing"
+    assert reply["path"] == str(test_fs_engine.documents)  # type: ignore[attr-defined]
+    assert sorted(e["name"] for e in reply["entries"]) == ["Budget תקציב.pdf", "Photos", "סיכום ישיבה 3.docx"]
+    assert test_fs_engine.close() == 0
+    assert no_schema_violations(tmp_path)
+
+
+def test_list_folder_with_path_sends_hebrew_names_as_utf8(engine: Engine, tmp_path: Path) -> None:
+    docs = make_documents(tmp_path)
+    engine.send({"id": "l2", "type": "listFolder", "path": str(docs)})
+    raw = engine.read_raw()
+    assert "סיכום ישיבה 3.docx".encode("utf-8") in raw
+    reply = json.loads(raw.decode("utf-8"))
+    assert_valid(reply)
+    by_name = {e["name"]: e for e in reply["entries"]}
+    assert by_name["סיכום ישיבה 3.docx"]["typeCode"] == "word"
+    assert by_name["סיכום ישיבה 3.docx"]["size"] == 38912
+    assert by_name["Photos"]["kind"] == "folder"
+    assert "~$סיכום ישיבה 3.docx" not in by_name
+
+
+def test_missing_folder_is_folder_not_found(engine: Engine, tmp_path: Path) -> None:
+    engine.send({"id": "l3", "type": "listFolder", "path": str(tmp_path / "gone")})
+    assert engine.read() == {"id": "l3", "type": "error", "code": "folderNotFound", "data": {}}
+    engine.send({"id": "l4", "type": "ping"})
+    assert engine.read() == {"id": "l4", "type": "pong"}
+
+
+def test_denied_folder_is_access_denied(engine: Engine, tmp_path: Path) -> None:
+    denied = tmp_path / "denied"
+    denied.mkdir()
+    subprocess.run(["icacls", str(denied), "/deny", "*S-1-1-0:(RD)"], check=True, capture_output=True)
+    try:
+        engine.send({"id": "l5", "type": "listFolder", "path": str(denied)})
+        assert engine.read() == {"id": "l5", "type": "error", "code": "accessDenied", "data": {}}
+    finally:
+        subprocess.run(["icacls", str(denied), "/remove:d", "*S-1-1-0"], check=True, capture_output=True)
+
+
+def test_list_folder_with_bad_path_type_is_invalid(engine: Engine) -> None:
+    engine.send({"id": "l6", "type": "listFolder", "path": 5})
+    assert engine.read() == {"id": "l6", "type": "error", "code": "invalidRequest", "data": {}}
+
+
+def test_newer_list_folder_cancels_the_running_one(test_fs_engine: Engine, tmp_path: Path) -> None:
+    test_fs_engine.send({"id": "s1", "type": "listFolder", "path": "SLOW"})
+    test_fs_engine.send({"id": "s2", "type": "listFolder", "path": "SLOW"})
+    test_fs_engine.send({"id": "s3", "type": "listFolder"})
+    assert test_fs_engine.read() == {"id": "s1", "type": "cancelled"}
+    assert test_fs_engine.read() == {"id": "s2", "type": "cancelled"}
+    latest = test_fs_engine.read()
+    assert latest["id"] == "s3" and latest["type"] == "folderListing"
+    assert test_fs_engine.close() == 0
+    assert no_schema_violations(tmp_path)
+
+
+def test_ping_is_answered_while_a_listing_runs(test_fs_engine: Engine) -> None:
+    test_fs_engine.send({"id": "s1", "type": "listFolder", "path": "SLOW"})
+    time.sleep(0.3)  # the listing is well under way
+    sent = time.monotonic()
+    test_fs_engine.send({"id": "p1", "type": "ping"})
+    assert test_fs_engine.read(timeout=2.0) == {"id": "p1", "type": "pong"}
+    assert time.monotonic() - sent < 1.0
+    # Closing stdin cancels the listing: it still ends with exactly one terminal reply.
+    assert test_fs_engine.close() == 0
+    assert test_fs_engine.read() == {"id": "s1", "type": "cancelled"}
+    assert test_fs_engine.lines.empty()

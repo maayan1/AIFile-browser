@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { BrowseSession, type BrowseSnapshot } from "./browse/session";
 import { AppShell } from "./components/shell/AppShell";
 import { EngineSession } from "./engine/session";
 import { ProtocolClient, tauriTransport } from "./protocol/client";
@@ -8,12 +9,15 @@ const ECHO_TEXT = "סיכום ישיבה";
 
 export default function App() {
   const [bannerVisible, setBannerVisible] = useState(false);
+  const [browse, setBrowse] = useState<BrowseSnapshot | undefined>(undefined);
 
   useEffect(() => {
     const client = new ProtocolClient(tauriTransport());
     const session = new EngineSession(client);
+    const browsing = new BrowseSession(client);
     let active = true;
 
+    browsing.subscribe(setBrowse);
     session.subscribe((snapshot) => {
       setBannerVisible(snapshot.bannerVisible);
       // Dev readout (was on screen in 1.1/1.2): engine state, protocol version and status.
@@ -43,9 +47,10 @@ export default function App() {
 
     return () => {
       active = false;
+      browsing.stop();
       session.stop();
     };
   }, []);
 
-  return <AppShell bannerVisible={bannerVisible} />;
+  return <AppShell bannerVisible={bannerVisible} browse={browse} />;
 }

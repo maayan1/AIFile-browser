@@ -7,7 +7,10 @@
   corrupt the protocol stream.
 - All protocol output goes through one queue drained by one writer thread.
 - ``ping`` is answered here: it is transport, not a product rule. ``status`` is a
-  fixed placeholder here until indexing arrives.
+  fixed placeholder here until indexing arrives. Both run on the reader thread.
+- Long requests run on a channel (AD-10): one worker thread per channel, latest wins. The reader
+  thread only queues them, so ``ping`` is answered while a listing runs. A newer request on the
+  channel cancels the older one's token, and the older one ends with ``cancelled``.
 """
 
 from __future__ import annotations
@@ -22,6 +25,8 @@ import threading
 from pathlib import Path
 from typing import Any, BinaryIO, Callable
 
+from core.cancel import Cancelled, CancelToken
+
 PROTOCOL_VERSION = 1
 
 UNKNOWN_REQUEST = "unknownRequest"
@@ -34,6 +39,7 @@ stray_log = logging.getLogger("fb2.stdout")
 
 Message = dict[str, Any]
 Handler = Callable[[Message], Message]
+ChannelHandler = Callable[[Message, CancelToken], Message]
 
 
 def handle_ping(request: Message) -> Message:
@@ -57,6 +63,10 @@ HANDLERS: dict[str, Handler] = {
 
 def error(request_id: str | None, code: str) -> Message:
     return {"id": request_id, "type": "error", "code": code, "data": {}}
+
+
+def cancelled(request_id: str) -> Message:
+    return {"id": request_id, "type": "cancelled"}
 
 
 def encode(message: Message) -> bytes:
@@ -96,6 +106,60 @@ def _set_binary(fd: int) -> None:
         msvcrt.setmode(fd, os.O_BINARY)
 
 
+class Channel:
+    """One worker thread running one request at a time, latest wins (AD-10).
+
+    Every submitted request ends with exactly one terminal reply: its handler's reply, an
+    ``invalidRequest`` error if the handler fails, or ``cancelled`` if a newer request arrived
+    before its reply was queued.
+    """
+
+    def __init__(self, name: str, send: Callable[[Message], None]) -> None:
+        self.name = name
+        self._send = send
+        self._lock = threading.Lock()
+        self._latest: CancelToken | None = None
+        self._queue: queue.Queue[tuple[Message, ChannelHandler, CancelToken] | None] = queue.Queue()
+        self._thread = threading.Thread(target=self._run, name=f"channel-{name}", daemon=True)
+        self._thread.start()
+
+    def submit(self, request: Message, handler: ChannelHandler) -> None:
+        token = CancelToken()
+        with self._lock:
+            # Every older request was cancelled when its successor arrived, so only the latest
+            # can still be live.
+            if self._latest is not None:
+                self._latest.cancel()
+            self._latest = token
+        self._queue.put((request, handler, token))
+
+    def close(self, timeout: float = 5.0) -> None:
+        """Cancel what is running, answer what is queued, and stop the worker."""
+        with self._lock:
+            if self._latest is not None:
+                self._latest.cancel()
+        self._queue.put(None)
+        self._thread.join(timeout=timeout)
+
+    def _run(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            request, handler, token = item
+            request_id = request["id"]
+            try:
+                reply = cancelled(request_id) if token.cancelled else handler(request, token)
+            except Cancelled:
+                reply = cancelled(request_id)
+            except Exception:
+                log.exception("handler for %r failed", request["type"])
+                reply = error(request_id, INVALID_REQUEST)
+            if token.cancelled and reply.get("type") != "cancelled":
+                reply = cancelled(request_id)
+            self._send(reply)
+
+
 class StdioTransport:
     def __init__(self, stdin: BinaryIO, protocol_out: BinaryIO, validator: SchemaValidator | None) -> None:
         self._stdin = stdin
@@ -104,6 +168,8 @@ class StdioTransport:
         self._queue: queue.Queue[Message | None] = queue.Queue()
         self._writer = threading.Thread(target=self._write_loop, name="protocol-writer", daemon=True)
         self._drain: threading.Thread | None = None
+        self._channels: dict[str, Channel] = {}
+        self._channel_of: dict[str, tuple[Channel, ChannelHandler]] = {}
 
     # ----- setup / teardown -------------------------------------------------
 
@@ -141,8 +207,16 @@ class StdioTransport:
         log.info("transport open (validate=%s)", validate)
         return transport
 
+    def register_channel(self, request_type: str, channel: str, handler: ChannelHandler) -> None:
+        """Serve `request_type` off the reader thread on the named channel (created on first use)."""
+        if channel not in self._channels:
+            self._channels[channel] = Channel(channel, self.send)
+        self._channel_of[request_type] = (self._channels[channel], handler)
+
     def close(self) -> None:
-        """Flush pending protocol output and stop the helper threads."""
+        """Answer or cancel channel work, flush pending protocol output and stop the helper threads."""
+        for channel in self._channels.values():
+            channel.close()
         self._queue.put(None)
         self._writer.join(timeout=5)
         try:
@@ -191,9 +265,9 @@ class StdioTransport:
     def serve_forever(self) -> None:
         """Read requests until stdin closes; reply to each with exactly one terminal message.
 
-        Requests are handled one at a time on this reader thread, and the shell treats a ping
-        unanswered within its ping timeout (5 s) as a hang. Any handler that can take longer than
-        a few seconds must run off this thread (AD-10).
+        Requests in HANDLERS are handled one at a time on this reader thread, and the shell treats
+        a ping unanswered within its ping timeout (5 s) as a hang. Any handler that can take longer
+        than a few seconds must run on a channel instead (AD-10, ``register_channel``).
         """
         for raw in iter(self._stdin.readline, b""):
             reply = self.handle_line(raw)
@@ -201,7 +275,8 @@ class StdioTransport:
                 self.send(reply)
         log.info("stdin closed")
 
-    def handle_line(self, raw: bytes) -> Message:
+    def handle_line(self, raw: bytes) -> Message | None:
+        """The terminal reply for a reader-thread request, or None once a channel has queued it."""
         request = _parse(raw)
         if request is None:
             log.warning("invalid request line (%d bytes)", len(raw))
@@ -209,7 +284,8 @@ class StdioTransport:
 
         request_id, request_type = request["id"], request["type"]
         handler = HANDLERS.get(request_type)
-        if handler is None:
+        channelled = self._channel_of.get(request_type)
+        if handler is None and channelled is None:
             log.warning("unknown request type %r", request_type)
             return error(request_id, UNKNOWN_REQUEST)
 
@@ -219,6 +295,11 @@ class StdioTransport:
                 log.warning("request %s violates its schema: %s", request_type, problem)
                 return error(request_id, INVALID_REQUEST)
 
+        if handler is None:
+            assert channelled is not None
+            channel, channel_handler = channelled
+            channel.submit(request, channel_handler)
+            return None
         try:
             return handler(request)
         except Exception:

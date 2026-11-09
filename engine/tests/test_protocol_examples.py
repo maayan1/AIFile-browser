@@ -50,7 +50,9 @@ def test_every_error_code_is_listed_in_codes_json() -> None:
 
 
 def test_engine_error_codes_are_listed_in_codes_json() -> None:
+    import main
     from adapters import stdio_transport
 
     codes = set(load(PROTOCOL_DIR / "codes.json")["errorCodes"])
     assert {stdio_transport.UNKNOWN_REQUEST, stdio_transport.INVALID_REQUEST} <= codes
+    assert {main.FOLDER_NOT_FOUND, main.ACCESS_DENIED} <= codes

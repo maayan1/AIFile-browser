@@ -4,12 +4,26 @@
 // engine's state (`engine-state`); on a restart every pending request ends here (AD-16).
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { ErrorMessage, Ping, Pong, ProtocolMessage, Ready, Status, StatusReport } from "./generated";
+import type {
+  Cancelled,
+  ErrorMessage,
+  FolderListing,
+  ListFolder,
+  Ping,
+  Pong,
+  ProtocolMessage,
+  Ready,
+  Status,
+  StatusReport,
+} from "./generated";
 
 /** Requests the UI may send; the client adds the `id`. */
-export type Request = Omit<Ping, "id"> | Omit<Status, "id">;
-/** Terminal replies, matched to a request by `id`. */
-export type Reply = Pong | StatusReport | ErrorMessage;
+export type Request = Omit<Ping, "id"> | Omit<Status, "id"> | Omit<ListFolder, "id">;
+/**
+ * Terminal replies, matched to a request by `id`. `cancelled` ends a request that a newer one on
+ * the same engine channel replaced (latest wins).
+ */
+export type Reply = Pong | StatusReport | FolderListing | Cancelled | ErrorMessage;
 /** Unsolicited engine messages (`id: null`). */
 export type EngineEvent = Ready | (ErrorMessage & { id: null });
 /** The engine state as the shell's supervisor reports it. */
