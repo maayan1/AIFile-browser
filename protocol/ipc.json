@@ -1,0 +1,13 @@
+{
+  "commands": {
+    "send": "engine_send",
+    "ready": "engine_ready",
+    "state": "engine_state"
+  },
+  "sendArgument": "line",
+  "events": {
+    "message": "engine-message",
+    "state": "engine-state"
+  },
+  "states": ["starting", "running", "restarting", "stopped"]
+}

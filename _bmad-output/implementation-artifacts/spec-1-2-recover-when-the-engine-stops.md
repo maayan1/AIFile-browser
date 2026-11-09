@@ -197,3 +197,29 @@ Pass 1 (2026-11-02). Layers: Edge Case Hunter (E), Blind Hunter (B), Verificatio
 | VG3 | Graceful EOF exit on stop is untested | gap | Pre-verified: `stop_leaves_no_engine_process` would pass with a hard kill. | patch P6 |
 | VG4 | Stale-generation guard is not exercised deterministically | gap | Pre-verified: stale messages probably land in `sleep`. The test can inject through the `control` sender. | patch P7 |
 | VG-other | Any reply with a `shell:` id counts as a pong, even an `error` | false | An engine that reads and answers the ping is alive by definition; liveness only means "responds". | reject |
+
+## Code Review — 2026-11-09 (Stories 1.1–1.3 together, `1397979..5772474`)
+
+### Review Findings
+
+- [x] [Review][Decision] (resolved 2026-11-09, option 1b: Claude launches `tauri dev` and screenshots each manual check for the user to judge) Acceptance criteria that can only be checked by eye were never checked — AC 1 (the banner appears and disappears) is still open per Implementation Notes ("nobody has seen the banner on screen yet"), yet the spec says `status: 'done'`. See the same finding in Stories 1.1 and 1.3.
+  - Verified 2026-11-09 under `tauri dev`: killing the engine's `python main.py` showed the banner ("The search stopped working. Trying again…") under the filter bar within 0.4 s, and it was gone 5 s later after the respawn. The new `shell.log` recorded `engine: stdout closed`. Closing the window left no engine process.
+- [x] [Review][Decision] (resolved 2026-11-09, option 2a: add a shell log file now; becomes the patch below) The shell's supervisor diagnostics vanish in release builds — every failure reason goes only to `eprintln!`, and `main.rs` sets `windows_subsystem = "windows"` in release, so there is no console. The engine's own stderr is inherited and lost too. The I/O matrix says "spawn error logged", and the epic puts logs in `%LOCALAPPDATA%\FileBrowser2\logs\`. Options: add a shell log file now, or defer to Story 3.9, when release builds first get an engine.
+- [x] [Review][Patch] Write the supervisor's diagnostics (and the engine's stderr) to a rotating shell log in `%LOCALAPPDATA%\FileBrowser2\logs\`, so release builds keep them [app/src-tauri/src/engine.rs:211]
+- [x] [Review][Patch] The Tauri command and event names are only pinned on the Rust side, and no test exercises `tauriTransport()`, so renaming `engine-state`, `engine-message`, `engine_send`, `engine_ready`, `engine_state` or the `line` argument on either side breaks the real app with every suite green [app/src/protocol/client.ts:31]
+- [x] [Review][Patch] No test asserts that the restart backoff grows exponentially; a constant `backoff_base` passes every supervisor test [app/src-tauri/src/engine.rs:216]
+- [x] [Review][Defer] The `Stuck` path (killed job never empties → `stopped`, no respawn) has no test [app/src-tauri/src/engine.rs:330] — deferred: already tracked in deferred-work.md (fault-injection seam around `Job`).
+
+**Rejected**
+- low — `Supervisor::send` doesn't reject UI lines with the reserved `shell:` id prefix or non-JSON. The only sender, `ProtocolClient`, uses `crypto.randomUUID()` ids. Unreachable, and the fix adds a guard.
+- reject (spec) — The banner says "Trying again…" after `stopped`. Real, but the frozen intent fixes this exact text, so the fix is a spec change (B3 earlier, raised with the user). Still open as a product question.
+- low — Release builds (no engine) and a missing `uv` retry for about 15 s before `stopped`. Release has no engine until 3.9, and a missing `uv` is a dev setup problem. The fix adds a branch.
+- low — App exit can block for up to 12 s. That happens only if the killed job won't empty. Normally the engine exits on stdin EOF in well under the 2 s grace.
+- low — `read_lines` has no line-length cap, and the writer queue is unbounded. It would need a runaway engine of our own, and the cap adds new failure handling.
+- low — Each engine line is parsed as JSON up to three times. At a few lines per second the cost is negligible.
+- false — `Outcome::Stop` never sets the state to `stopped`. Stop is sent only from `RunEvent::Exit`, and nothing reads the state after that.
+- low — A `restarting` that arrives during `start()`'s `lastReady()` await can replay the old `ready`. The window is a few milliseconds at page load, and the next `ready` corrects it. The fix adds an epoch guard.
+- low — An `engine_send` failure during a restart rejects with a plain string rather than `EngineStoppedError`, so you get one `console.error` in dev. There is no user-visible effect.
+- low — A `status` request that returns an `error` reply is dropped silently. The engine's `status` handler can't fail today.
+- low — The release `engine_command() == None` path and the multi-line `send` guard are untested. Both are trivial, and release has no engine yet.
+- false — An `error` reply with the ping's id counts as a pong. An engine that answers is alive (already rejected as VG-other).
