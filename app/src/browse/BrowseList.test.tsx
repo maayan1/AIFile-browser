@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { t } from "@/i18n/catalog";
 import type { FolderListing } from "@/protocol/generated";
 import { BrowseList } from "./BrowseList";
-import type { BrowseSnapshot } from "./session";
+import { INITIAL_SNAPSHOT, type BrowseSnapshot } from "./session";
 
 afterEach(cleanup);
 
@@ -12,6 +12,8 @@ const LISTING: FolderListing = {
   id: "u1",
   type: "folderListing",
   path: "C:\\Users\\dana\\Documents",
+  parent: "C:\\Users\\dana",
+  segments: [{ kind: "knownFolder", code: "documents", path: "C:\\Users\\dana\\Documents" }],
   entries: [
     { name: "סיכום ישיבה 3.docx", kind: "file", typeCode: "word", size: 38_912, modified: "2025-10-14T12:00:00+00:00" },
     { name: "Photos", kind: "folder", modified: "2025-10-20T12:00:00+00:00" },
@@ -19,7 +21,8 @@ const LISTING: FolderListing = {
   ],
 };
 
-const loaded = (listing: FolderListing = LISTING): BrowseSnapshot => ({ listing, error: null, loading: false });
+const snapshot = (change: Partial<BrowseSnapshot>): BrowseSnapshot => ({ ...INITIAL_SNAPSHOT, ...change });
+const loaded = (listing: FolderListing = LISTING): BrowseSnapshot => snapshot({ listing, location: listing.path });
 
 function rowNames(): string[] {
   const [, ...rows] = screen.getAllByRole("row");
@@ -79,7 +82,7 @@ describe("BrowseList", () => {
   });
 
   it("shows busy skeleton rows until the first listing arrives", () => {
-    const { container, rerender } = render(<BrowseList snapshot={{ listing: null, error: null, loading: true }} />);
+    const { container, rerender } = render(<BrowseList snapshot={snapshot({ loading: true })} />);
     expect(screen.getByRole("table").getAttribute("aria-busy")).toBe("true");
     expect(container.querySelectorAll("[data-skeleton]").length).toBeGreaterThan(0);
     expect(screen.getByRole("columnheader", { name: t("column.name") })).toBeTruthy();
@@ -90,7 +93,7 @@ describe("BrowseList", () => {
   });
 
   it("replaces an error with busy skeleton rows while a new listing loads", () => {
-    const { container } = render(<BrowseList snapshot={{ listing: null, error: "accessDenied", loading: true }} />);
+    const { container } = render(<BrowseList snapshot={snapshot({ error: "accessDenied", loading: true })} />);
     expect(screen.queryByText(t("browse.accessDenied"))).toBeNull();
     expect(screen.getByRole("table").getAttribute("aria-busy")).toBe("true");
     expect(container.querySelectorAll("[data-skeleton]").length).toBeGreaterThan(0);
@@ -112,10 +115,55 @@ describe("BrowseList", () => {
   it.each([
     ["folderNotFound", "This folder doesn't exist."],
     ["accessDenied", "You don't have permission to open this folder."],
+    ["folderUnavailable", "This folder can't be shown right now."],
     ["invalidRequest", t("browse.unavailable")],
   ])("shows the %s sentence in the empty state", (code, text) => {
-    render(<BrowseList snapshot={{ listing: null, error: code, loading: false }} />);
+    render(<BrowseList snapshot={snapshot({ error: code })} />);
     expect(screen.getByRole("status").textContent).toBe(text);
     expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("selects one row at a time on click, focuses it and marks it", () => {
+    render(<BrowseList snapshot={loaded()} />);
+    const row = (name: string) => screen.getByText(name).closest("tr")!;
+    expect(screen.getAllByRole("row").filter((r) => r.getAttribute("aria-selected") === "true")).toEqual([]);
+
+    fireEvent.click(row("Photos"));
+    expect(row("Photos").getAttribute("aria-selected")).toBe("true");
+    expect(row("Photos").className).toContain("bg-selection");
+    expect(row("Photos").tabIndex).toBe(0);
+    expect(document.activeElement).toBe(row("Photos"));
+
+    fireEvent.click(row("Budget תקציב.pdf"));
+    expect(row("Photos").getAttribute("aria-selected")).toBe("false");
+    expect(row("Photos").className).not.toContain("bg-selection");
+    expect(row("Photos").tabIndex).toBe(-1);
+    expect(row("Budget תקציב.pdf").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("opens a folder row on double-click or Enter, and files do nothing yet", () => {
+    const onOpen = vi.fn();
+    render(<BrowseList snapshot={loaded()} onOpen={onOpen} />);
+    const row = (name: string) => screen.getByText(name).closest("tr")!;
+
+    fireEvent.doubleClick(row("Photos"));
+    expect(onOpen).toHaveBeenLastCalledWith("C:\\Users\\dana\\Documents\\Photos");
+
+    fireEvent.click(row("Photos"));
+    fireEvent.keyDown(row("Photos"), { key: "Enter" });
+    expect(onOpen).toHaveBeenCalledTimes(2);
+
+    fireEvent.doubleClick(row("סיכום ישיבה 3.docx"));
+    fireEvent.click(row("סיכום ישיבה 3.docx"));
+    fireEvent.keyDown(row("סיכום ישיבה 3.docx"), { key: "Enter" });
+    fireEvent.keyDown(row("Photos"), { key: " " });
+    expect(onOpen).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts a new listing with nothing selected", () => {
+    const { rerender } = render(<BrowseList snapshot={loaded()} />);
+    fireEvent.click(screen.getByText("Photos").closest("tr")!);
+    rerender(<BrowseList snapshot={loaded({ ...LISTING, id: "u2" })} />);
+    expect(screen.getByText("Photos").closest("tr")!.getAttribute("aria-selected")).toBe("false");
   });
 });

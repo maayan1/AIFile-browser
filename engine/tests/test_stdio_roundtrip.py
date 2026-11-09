@@ -184,9 +184,9 @@ def test_engine_exits_cleanly_when_stdin_closes(engine: Engine) -> None:
 
 # ----- listFolder (spec 1.4 I/O matrix) ------------------------------------
 
-# The real engine with a file system whose Documents folder is a test folder and whose "SLOW"
+# The real engine with a file system whose Documents folder is a test folder, whose "SLOW"
 # folder takes minutes to enumerate (1 ms per entry), so a listing is still running when the
-# test sends its next request.
+# test sends its next request, and whose "NOTREADY" folder is on a drive that isn't ready.
 TEST_FS_SCRIPT = """
 import os, sys, time
 sys.path.insert(0, os.getcwd())
@@ -194,9 +194,19 @@ import main
 from adapters.windows_fs import WindowsFileSystem
 from core.ports.filesystem import FsEntry
 
+ERROR_NOT_READY = 21
+
 class TestFileSystem(WindowsFileSystem):
     def documents_folder(self):
         return os.environ["FB2_TEST_DOCUMENTS"]
+
+    def known_folders(self):
+        return {"documents": os.environ["FB2_TEST_DOCUMENTS"]}
+
+    def resolve(self, path):
+        if path == "NOTREADY":
+            raise OSError(None, "The device is not ready", None, ERROR_NOT_READY)
+        return path if path == "SLOW" else super().resolve(path)
 
     def list(self, path):
         return self._slow() if path == "SLOW" else super().list(path)
@@ -281,8 +291,14 @@ def test_denied_folder_is_access_denied(engine: Engine, tmp_path: Path) -> None:
     denied.mkdir()
     subprocess.run(["icacls", str(denied), "/deny", "*S-1-1-0:(RD)"], check=True, capture_output=True)
     try:
-        engine.send({"id": "l5", "type": "listFolder", "path": str(denied)})
-        assert engine.read() == {"id": "l5", "type": "error", "code": "accessDenied", "data": {}}
+        engine.send({"id": "l5", "type": "listFolder", "path": str(denied).upper()})
+        reply = engine.read()
+        assert_valid(reply)
+        assert (reply["id"], reply["type"], reply["code"]) == ("l5", "error", "accessDenied")
+        # The folder exists, so its normalized place rides along for Up and the breadcrumb.
+        assert reply["data"]["path"] == str(denied)
+        assert reply["data"]["parent"] == str(tmp_path)
+        assert reply["data"]["segments"][-1] == {"kind": "folder", "name": "denied", "path": str(denied)}
     finally:
         subprocess.run(["icacls", str(denied), "/remove:d", "*S-1-1-0"], check=True, capture_output=True)
 
@@ -315,3 +331,56 @@ def test_ping_is_answered_while_a_listing_runs(test_fs_engine: Engine) -> None:
     assert test_fs_engine.close() == 0
     assert test_fs_engine.read() == {"id": "s1", "type": "cancelled"}
     assert test_fs_engine.lines.empty()
+
+
+# ----- navigation (spec 1.5 I/O matrix) ------------------------------------
+
+
+def test_a_typed_path_is_normalized(test_fs_engine: Engine, tmp_path: Path) -> None:
+    docs: Path = test_fs_engine.documents  # type: ignore[attr-defined]
+    typed = f'  "{str(docs / "Photos").lower()}\\"  '
+    test_fs_engine.send({"id": "t1", "type": "listFolder", "path": typed})
+    reply = test_fs_engine.read()
+    assert_valid(reply)
+    assert reply["path"] == str(docs / "Photos")  # on-disk casing, no quotes or trailing backslash
+    assert reply["parent"] == str(docs)
+    assert reply["segments"] == [
+        {"kind": "knownFolder", "code": "documents", "path": str(docs)},
+        {"kind": "folder", "name": "Photos", "path": str(docs / "Photos")},
+    ]
+    assert test_fs_engine.close() == 0
+    assert no_schema_violations(tmp_path)
+
+
+@pytest.mark.parametrize("path", ["relative\\folder", "C:\\a<b", "C:"])
+def test_relative_and_invalid_paths_are_folder_not_found(engine: Engine, path: str) -> None:
+    engine.send({"id": "t2", "type": "listFolder", "path": path})
+    assert engine.read() == {"id": "t2", "type": "error", "code": "folderNotFound", "data": {}}
+
+
+def test_a_drive_that_is_not_ready_is_folder_unavailable(test_fs_engine: Engine) -> None:
+    test_fs_engine.send({"id": "t3", "type": "listFolder", "path": "NOTREADY"})
+    assert test_fs_engine.read() == {"id": "t3", "type": "error", "code": "folderUnavailable", "data": {}}
+
+
+def test_a_drive_root_has_no_parent_and_one_drive_segment(engine: Engine) -> None:
+    system_root = os.environ.get("SystemDrive", "C:") + "\\"
+    engine.send({"id": "t4", "type": "listFolder", "path": system_root.lower()})
+    reply = engine.read(timeout=20.0)
+    assert_valid(reply)
+    assert reply["path"] == system_root.upper()
+    assert reply["parent"] is None
+    assert [s["kind"] for s in reply["segments"]] == ["drive"]
+    assert reply["segments"][0]["letter"] == system_root[0].upper()
+
+
+def test_list_locations_replies_with_known_folders_and_drives(test_fs_engine: Engine, tmp_path: Path) -> None:
+    test_fs_engine.send({"id": "n1", "type": "listLocations"})
+    reply = test_fs_engine.read(timeout=20.0)
+    assert_valid(reply)
+    assert reply["id"] == "n1" and reply["type"] == "locations"
+    assert reply["knownFolders"] == [{"code": "documents", "path": str(test_fs_engine.documents)}]  # type: ignore[attr-defined]
+    system_letter = os.environ.get("SystemDrive", "C:")[0].upper()
+    assert system_letter in [d["letter"] for d in reply["drives"]]
+    assert test_fs_engine.close() == 0
+    assert no_schema_violations(tmp_path)

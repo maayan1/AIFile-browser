@@ -1,6 +1,55 @@
-// How engine data reads on screen: type labels, sizes and dates, all worded by the catalog.
-import type { FileEntry, FolderEntry } from "../protocol/generated";
+// How engine data reads on screen: type labels, sizes, dates, places and folder errors, all
+// worded by the catalog.
+import type {
+  DriveSegment,
+  FileEntry,
+  FolderEntry,
+  FolderSegment,
+  KnownFolderCode,
+  KnownFolderSegment,
+} from "../protocol/generated";
 import { LOCALE, t, type CatalogKey } from "./catalog";
+
+// Typed so a known-folder code without a catalog name fails type-checking.
+const KNOWN_FOLDER_NAMES: Record<KnownFolderCode, CatalogKey> = {
+  documents: "knownFolder.documents",
+  desktop: "knownFolder.desktop",
+  downloads: "knownFolder.downloads",
+};
+
+/** "Documents", "Desktop", "Downloads". */
+export function knownFolderName(code: KnownFolderCode): string {
+  return t(KNOWN_FOLDER_NAMES[code]);
+}
+
+/** "OS (C:)", or "Local Disk (C:)" for a drive without a label. */
+export function driveName(letter: string, label: string | null): string {
+  return label ? t("drive.labelled", { label, letter }) : t("drive.unlabelled", { letter });
+}
+
+export type Segment = KnownFolderSegment | DriveSegment | FolderSegment;
+
+/** A breadcrumb segment's text: a known folder or drive worded by the catalog, else the folder's name. */
+export function segmentName(segment: Segment): string {
+  switch (segment.kind) {
+    case "knownFolder":
+      return knownFolderName(segment.code);
+    case "drive":
+      return driveName(segment.letter, segment.label);
+    case "folder":
+      return segment.name;
+  }
+}
+
+/** Folder error codes with their own sentence; any other code reads as `browse.unavailable`. */
+const FOLDER_ERRORS: Record<string, CatalogKey> = {
+  folderNotFound: "browse.folderNotFound",
+  accessDenied: "browse.accessDenied",
+};
+
+export function folderErrorKey(code: string): CatalogKey {
+  return Object.hasOwn(FOLDER_ERRORS, code) ? FOLDER_ERRORS[code] : "browse.unavailable";
+}
 
 export type Entry = FolderEntry | FileEntry;
 

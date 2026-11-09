@@ -18,13 +18,22 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { t, type CatalogKey } from "@/i18n/catalog";
-import { displayType, formatDate, formatSize, typeLabel, type DisplayType, type Entry } from "@/i18n/format";
+import {
+  displayType,
+  folderErrorKey,
+  formatDate,
+  formatSize,
+  typeLabel,
+  type DisplayType,
+  type Entry,
+} from "@/i18n/format";
 import { cn } from "@/lib/utils";
-import type { BrowseSnapshot } from "./session";
+import type { FolderListing } from "@/protocol/generated";
+import { childPath, type BrowseSnapshot } from "./session";
 import { DEFAULT_SORT, nextSort, sortEntries, type SortColumn, type SortOrder } from "./sort";
 
-// The browse list (FR-1): a table with a sticky, sortable header. Selection, opening and
-// keyboard row movement arrive in 1.5, 1.6 and 1.8. Names are isolated with <bdi dir="auto"> so a
+// The browse list (FR-1): a table with a sticky, sortable header. A click selects one row and
+// focuses it; double-click or Enter on a folder row opens it (files open in 1.6, ↑/↓ arrive in 1.8). Names are isolated with <bdi dir="auto"> so a
 // Hebrew or mixed name reads in its own direction with the extension at its end, while the icon
 // stays at the row's start. Logical properties only.
 
@@ -52,21 +61,18 @@ const COLUMNS: { column: SortColumn; label: CatalogKey; className: string }[] = 
 
 const SKELETON_ROWS = 8;
 
-/** Error codes with their own sentence; any other code gets `browse.unavailable`. */
-const ERROR_STATES: Record<string, { text: CatalogKey; icon: LucideIcon }> = {
-  folderNotFound: { text: "browse.folderNotFound", icon: FolderX },
-  accessDenied: { text: "browse.accessDenied", icon: FolderLock },
-};
-
-export function BrowseList({ snapshot }: { snapshot?: BrowseSnapshot }) {
+export function BrowseList({ snapshot, onOpen }: { snapshot?: BrowseSnapshot; onOpen?: (path: string) => void }) {
   const [order, setOrder] = useState<SortOrder>(DEFAULT_SORT);
+  // The selection belongs to the listing it was made in; a new listing starts with none.
+  const [selection, setSelection] = useState<{ listing: FolderListing; name: string } | null>(null);
   const listing = snapshot?.listing ?? null;
   const rows = useMemo(() => (listing ? sortEntries(listing.entries, order) : []), [listing, order]);
+  const selected = listing && selection?.listing === listing ? selection.name : null;
 
   // While a new request loads, its skeleton rows replace the previous error.
   if (!listing && snapshot?.error && !snapshot.loading) {
-    const state = ERROR_STATES[snapshot.error] ?? { text: "browse.unavailable", icon: FolderX };
-    return <EmptyState icon={state.icon} text={state.text} />;
+    const icon = snapshot.error === "accessDenied" ? FolderLock : FolderX;
+    return <EmptyState icon={icon} text={folderErrorKey(snapshot.error)} />;
   }
   if (listing && listing.entries.length === 0) {
     return <EmptyState icon={FolderOpen} text="browse.empty" />;
@@ -106,16 +112,59 @@ export function BrowseList({ snapshot }: { snapshot?: BrowseSnapshot }) {
           })}
         </tr>
       </thead>
-      <tbody>{listing ? rows.map((entry) => <Row key={entry.name} entry={entry} />) : <SkeletonRows />}</tbody>
+      <tbody>
+        {listing ? (
+          rows.map((entry) => (
+            <Row
+              key={entry.name}
+              entry={entry}
+              selected={entry.name === selected}
+              onSelect={() => setSelection({ listing, name: entry.name })}
+              onOpen={() => onOpen?.(childPath(listing.path, entry.name))}
+            />
+          ))
+        ) : (
+          <SkeletonRows />
+        )}
+      </tbody>
     </table>
   );
 }
 
-function Row({ entry }: { entry: Entry }) {
+function Row({
+  entry,
+  selected,
+  onSelect,
+  onOpen,
+}: {
+  entry: Entry;
+  selected: boolean;
+  onSelect: () => void;
+  onOpen: () => void;
+}) {
   const Icon = ICONS[displayType(entry)];
+  const isFolder = entry.kind === "folder";
   return (
-    <tr className="h-row">
-      <td className="px-2.5">
+    <tr
+      aria-selected={selected}
+      // The selected row is the list's one tab stop (↑/↓ movement arrives in 1.8).
+      tabIndex={selected ? 0 : -1}
+      onClick={(event) => {
+        onSelect();
+        event.currentTarget.focus();
+      }}
+      onDoubleClick={() => {
+        if (isFolder) onOpen();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && isFolder) {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      className={cn("h-row cursor-default", selected ? "bg-selection" : "hover:bg-accent")}
+    >
+      <td className="rounded-s-sm px-2.5">
         <span className="flex min-w-0 items-center gap-2.5">
           <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
           <bdi dir="auto" className="truncate">
@@ -127,7 +176,7 @@ function Row({ entry }: { entry: Entry }) {
       <td className="truncate px-2.5 text-end text-body-sm text-muted-foreground">
         {entry.kind === "file" ? formatSize(entry.size) : ""}
       </td>
-      <td className="truncate px-2.5 text-body-sm text-muted-foreground">{formatDate(entry.modified)}</td>
+      <td className="truncate rounded-e-sm px-2.5 text-body-sm text-muted-foreground">{formatDate(entry.modified)}</td>
     </tr>
   );
 }

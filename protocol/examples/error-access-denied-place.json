@@ -1,0 +1,1 @@
+{"id": "l7", "type": "error", "code": "accessDenied", "data": {"path": "C:\\Users\\dana\\Documents\\Private", "parent": "C:\\Users\\dana\\Documents", "segments": [{"kind": "knownFolder", "code": "documents", "path": "C:\\Users\\dana\\Documents"}, {"kind": "folder", "name": "Private", "path": "C:\\Users\\dana\\Documents\\Private"}]}}

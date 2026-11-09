@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Locations",
+  "description": "Terminal reply to listLocations: the known folders that exist, in nav-pane order, and the fixed and removable drives in letter order. Codes and data only; the UI words them.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "locations" },
+    "knownFolders": { "type": "array", "items": { "$ref": "#/definitions/knownFolderLocation" } },
+    "drives": { "type": "array", "items": { "$ref": "#/definitions/driveLocation" } }
+  },
+  "required": ["id", "type", "knownFolders", "drives"],
+  "additionalProperties": false,
+  "definitions": {
+    "knownFolderLocation": {
+      "title": "KnownFolderLocation",
+      "type": "object",
+      "properties": {
+        "code": { "description": "Same codes as folderListing's KnownFolderCode.", "enum": ["documents", "desktop", "downloads"] },
+        "path": { "type": "string", "minLength": 1 }
+      },
+      "required": ["code", "path"],
+      "additionalProperties": false
+    },
+    "driveLocation": {
+      "title": "DriveLocation",
+      "type": "object",
+      "properties": {
+        "letter": { "description": "Upper-case drive letter, without the colon.", "type": "string", "pattern": "^[A-Z]$" },
+        "label": { "description": "The volume label; null when it has none or the drive isn't ready.", "type": ["string", "null"] },
+        "path": { "type": "string", "minLength": 1 }
+      },
+      "required": ["letter", "label", "path"],
+      "additionalProperties": false
+    }
+  }
+}

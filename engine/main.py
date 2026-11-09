@@ -17,12 +17,21 @@ from pathlib import Path
 
 from adapters.stdio_transport import PROTOCOL_VERSION, ChannelHandler, Message, StdioTransport, error
 from adapters.windows_fs import WindowsFileSystem
-from core.browse import list_folder
+from core.browse import FolderUnreadable, list_folder
 from core.cancel import CancelToken
+from core.locations import locations
 from core.ports.filesystem import FileSystemPort
 
 FOLDER_NOT_FOUND = "folderNotFound"
 ACCESS_DENIED = "accessDenied"
+FOLDER_UNAVAILABLE = "folderUnavailable"
+
+# Windows error codes that mean the folder isn't there: file or path not found, no such drive,
+# a bad name (123: the filename syntax is incorrect), a bad path name, or not a folder (267).
+# Python maps some other codes misleadingly (ERROR_NOT_READY to PermissionError, an unreachable
+# share to FileNotFoundError), so the winerror decides when there is one.
+NOT_FOUND_WINERRORS = frozenset({2, 3, 15, 123, 161, 267})
+DENIED_WINERRORS = frozenset({5, 65})  # access denied, network access denied
 
 log = logging.getLogger("fb2.main")
 
@@ -56,22 +65,46 @@ def setup_logging() -> None:
     threading.excepthook = lambda args: log_uncaught(args.exc_type, args.exc_value, args.exc_traceback)
 
 
+def folder_error_code(exc: OSError) -> str:
+    """The protocol code for why a folder can't be listed."""
+    winerror = getattr(exc, "winerror", None)
+    if winerror is not None:
+        if winerror in NOT_FOUND_WINERRORS:
+            return FOLDER_NOT_FOUND
+        return ACCESS_DENIED if winerror in DENIED_WINERRORS else FOLDER_UNAVAILABLE
+    if isinstance(exc, PermissionError):
+        return ACCESS_DENIED
+    if isinstance(exc, (FileNotFoundError, NotADirectoryError)):
+        return FOLDER_NOT_FOUND
+    return FOLDER_UNAVAILABLE
+
+
 def list_folder_handler(fs: FileSystemPort) -> ChannelHandler:
     """The `listFolder` channel handler: a folderListing, or the folder error as a protocol code."""
 
     def handle(request: Message, token: CancelToken) -> Message:
         try:
             listing = list_folder(fs, request.get("path"), token)
-        except PermissionError:
-            log.info("listFolder: access denied")
-            return error(request["id"], ACCESS_DENIED)
-        except (FileNotFoundError, NotADirectoryError):
-            return error(request["id"], FOLDER_NOT_FOUND)
+        except FolderUnreadable as exc:
+            # The folder exists: its place rides along, so Up and the breadcrumb still work.
+            code = folder_error_code(exc.error)
+            log.info("listFolder: %s (winerror %s)", code, getattr(exc.error, "winerror", None))
+            return {**error(request["id"], code), "data": exc.place}
         except OSError as exc:
-            # Any other reason the folder can't be read (bad name, drive not ready, ...).
-            log.info("listFolder: folder unreadable (winerror %s)", getattr(exc, "winerror", None))
-            return error(request["id"], FOLDER_NOT_FOUND)
+            code = folder_error_code(exc)
+            log.info("listFolder: %s (winerror %s)", code, getattr(exc, "winerror", None))
+            return error(request["id"], code)
         return {"id": request["id"], "type": "folderListing", **listing}
+
+    return handle
+
+
+def list_locations_handler(fs: FileSystemPort) -> ChannelHandler:
+    """The `listLocations` channel handler: the nav pane's known folders and drives."""
+
+    def handle(request: Message, token: CancelToken) -> Message:
+        token.raise_if_cancelled()
+        return {"id": request["id"], "type": "locations", **locations(fs)}
 
     return handle
 
@@ -79,7 +112,10 @@ def list_folder_handler(fs: FileSystemPort) -> ChannelHandler:
 def main() -> int:
     setup_logging()
     transport = StdioTransport.open(validate=os.environ.get("FB2_VALIDATE_PROTOCOL") == "1")
-    transport.register_channel("listFolder", "listFolder", list_folder_handler(WindowsFileSystem()))
+    fs = WindowsFileSystem()
+    transport.register_channel("listFolder", "listFolder", list_folder_handler(fs))
+    # Its own channel: reading a removable drive's label can block, and must never hold up a listing.
+    transport.register_channel("listLocations", "locations", list_locations_handler(fs))
     transport.send({"id": None, "type": "ready", "protocolVersion": PROTOCOL_VERSION})
     try:
         transport.serve_forever()

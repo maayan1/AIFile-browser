@@ -9,12 +9,16 @@ export const catalog = {
   "topBar.up": "Up",
   "topBar.settings": "Search folders",
   "breadcrumb.label": "Location",
+  "breadcrumb.field": "Folder path",
   "search.label": "Search",
   "search.placeholder": "Search by name, or describe what you remember",
   "filter.label": "Filters",
   "filter.date": "Date",
   "filter.type": "Type",
   "nav.label": "Folders",
+  "nav.searchFolders": "Search folders",
+  "nav.quickAccess": "Quick access",
+  "nav.thisPc": "This PC",
   "main.label": "Files",
   "preview.label": "Preview",
   "preview.empty": "Select a file to preview",
@@ -30,6 +34,13 @@ export const catalog = {
   "browse.folderNotFound": "This folder doesn't exist.",
   "browse.accessDenied": "You don't have permission to open this folder.",
   "browse.unavailable": "This folder can't be shown right now.",
+
+  // One name per engine known-folder code, and the two ways a drive is named ({letter} is "C").
+  "knownFolder.documents": "Documents",
+  "knownFolder.desktop": "Desktop",
+  "knownFolder.downloads": "Downloads",
+  "drive.labelled": "{label} ({letter}:)",
+  "drive.unlabelled": "Local Disk ({letter}:)",
 
   // One label per engine typeCode.
   "type.folder": "File folder",

@@ -6,7 +6,7 @@
   "properties": {
     "id": { "type": "string", "minLength": 1 },
     "type": { "const": "listFolder" },
-    "path": { "type": "string", "minLength": 1 }
+    "path": { "description": "As typed or as listed: the engine trims it, strips surrounding quotes, collapses . and .. and doubled separators, and restores on-disk casing. A relative or device path is folderNotFound.", "type": "string", "minLength": 1 }
   },
   "required": ["id", "type"],
   "additionalProperties": false

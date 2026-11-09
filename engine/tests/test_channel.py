@@ -6,9 +6,11 @@ import queue
 import threading
 from collections.abc import Iterator
 
+import pytest
+
 from adapters.stdio_transport import Channel, Message
 from core.cancel import CancelToken
-from core.ports.filesystem import FsEntry
+from core.ports.filesystem import Drive, FsEntry
 import main
 
 TIMEOUT = 5.0
@@ -84,23 +86,74 @@ def test_a_handler_finishing_after_its_cancel_yields_cancelled() -> None:
 
 
 class RaisingFs:
-    def __init__(self, exc: Exception) -> None:
+    """Resolves every path as given; listing raises `exc` (or resolving does, with `on_resolve`)."""
+
+    def __init__(self, exc: Exception, on_resolve: bool = False) -> None:
         self.exc = exc
+        self.on_resolve = on_resolve
 
     def documents_folder(self) -> str:
         return "X:\\"
+
+    def known_folders(self) -> dict[str, str]:
+        return {}
+
+    def drives(self, letter: str | None = None) -> list[Drive]:
+        return []
+
+    def resolve(self, path: str) -> str:
+        if self.on_resolve:
+            raise self.exc
+        return path
 
     def list(self, path: str) -> Iterator[FsEntry]:
         raise self.exc
 
 
-def test_other_os_errors_map_to_folder_not_found() -> None:
-    handle = main.list_folder_handler(RaisingFs(OSError(22, "The filename syntax is incorrect")))
-    reply = handle({"id": "l1", "type": "listFolder", "path": "C:\\a<b"}, CancelToken())
-    assert reply == {"id": "l1", "type": "error", "code": "folderNotFound", "data": {}}
+def list_reply(exc: Exception, on_resolve: bool = False) -> Message:
+    handle = main.list_folder_handler(RaisingFs(exc, on_resolve))
+    return handle({"id": "l1", "type": "listFolder", "path": "C:\\x"}, CancelToken())
 
 
-def test_permission_error_maps_to_access_denied() -> None:
-    handle = main.list_folder_handler(RaisingFs(PermissionError(13, "Access is denied")))
-    reply = handle({"id": "l2", "type": "listFolder", "path": "C:\\denied"}, CancelToken())
-    assert reply["code"] == "accessDenied"
+@pytest.mark.parametrize(
+    ("exc", "code"),
+    [
+        (FileNotFoundError(2, "The system cannot find the file specified"), "folderNotFound"),
+        (NotADirectoryError(20, "Not a directory"), "folderNotFound"),
+        (OSError(None, "The filename syntax is incorrect", None, 123), "folderNotFound"),
+        (OSError(None, "The directory name is invalid", None, 267), "folderNotFound"),
+        (OSError(None, "The system cannot find the path specified", None, 3), "folderNotFound"),
+        (PermissionError(13, "Access is denied"), "accessDenied"),
+        (OSError(None, "Access is denied", None, 5), "accessDenied"),
+        # Python maps ERROR_NOT_READY to PermissionError and an unreachable share to
+        # FileNotFoundError; the winerror decides.
+        (OSError(None, "The device is not ready", None, 21), "folderUnavailable"),
+        (OSError(None, "The network path was not found", None, 53), "folderUnavailable"),
+        (OSError(None, "The network name cannot be found", None, 67), "folderUnavailable"),
+        (OSError(22, "Invalid argument"), "folderUnavailable"),
+    ],
+    ids=lambda v: v if isinstance(v, str) else f"{type(v).__name__}-{getattr(v, 'winerror', None) or v.errno}",
+)
+def test_folder_errors_map_to_codes(exc: OSError, code: str) -> None:
+    # A path that doesn't resolve has no place; a resolved folder that can't be listed sends its own.
+    assert list_reply(exc, on_resolve=True) == {"id": "l1", "type": "error", "code": code, "data": {}}
+    assert list_reply(exc, on_resolve=False) == {
+        "id": "l1",
+        "type": "error",
+        "code": code,
+        "data": {
+            "path": "C:\\x",
+            "parent": "C:\\",
+            "segments": [
+                {"kind": "drive", "letter": "C", "label": None, "path": "C:\\"},
+                {"kind": "folder", "name": "x", "path": "C:\\x"},
+            ],
+        },
+    }
+
+
+def test_list_locations_handler_replies_with_locations() -> None:
+    handle = main.list_locations_handler(RaisingFs(OSError()))
+    assert handle({"id": "n1", "type": "listLocations"}, CancelToken()) == {
+        "id": "n1", "type": "locations", "knownFolders": [], "drives": [],
+    }

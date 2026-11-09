@@ -37,3 +37,19 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-4-browse-a-folder.md`
   summary: For Story 1.5: normalize incoming paths in the engine (AD-9), re-list the last folder (not Documents) after an engine restart, and choose a code other than `folderNotFound` for a drive that isn't ready or an unreachable share.
   evidence: Review D2 (BH9/BH2/BH4). `folderListing.path` echoes the request string, `BrowseSession` lists Documents on every `ready`, and every other `OSError` maps to `folderNotFound`. None is reachable in 1.4, where no request carries a path.
+  resolved: Story 1.5 (2026-11-09). The engine's `resolve` normalizes every path, the session re-lists the current folder after `ready`, and `folderUnavailable` covers a drive that isn't ready or an unreachable share.
+
+## Deferred from: Story 1.5 scope split (2026-11-09)
+
+- source_spec: none
+  summary: Make a `listFolder` enumeration abandonable, so a blocking `scandir` (dead network share, drive not ready) can't hold the channel worker while newer listings queue behind it; build it right after Story 1.5.
+  evidence: Split from Story 1.5 at the user's choice ("1–3 now, 4 next"). It touches only the engine's channel/queue and none of 1.5's navigation depends on it; it becomes reachable once 1.5 adds typed and navigated paths (review D1 of Story 1.4).
+
+## Deferred from: code review of spec-1-5-navigate-folders.md (2026-11-09)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-5-navigate-folders.md`
+  summary: The browse list has no tab stop when no row is selected, and focus drops to the body after a row opens a folder. Give the list a roving tabindex (first row when none is selected) and move focus into the new listing after an open.
+  evidence: Review of Story 1.5 (blind-hunter, edge-case-hunter). Pre-existing: 1.4 rows took no focus. Story 1.8 owns the Tab order and ↑/↓ movement.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-5-navigate-folders.md`
+  summary: Check whether `GetVolumeInformationW` on an empty removable drive raises a "no disk" system dialog that blocks the `locations` channel; if it does, call `SetErrorMode(SEM_FAILCRITICALERRORS)` at engine start.
+  evidence: Review of Story 1.5 (edge-case-hunter), unverified (medium if true). Settle by opening the app with an empty card reader or USB slot under `tauri dev`.
