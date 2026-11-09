@@ -55,3 +55,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-5-navigate-folders.md`
   summary: Check whether `GetVolumeInformationW` on an empty removable drive raises a "no disk" system dialog that blocks the `locations` channel; if it does, call `SetErrorMode(SEM_FAILCRITICALERRORS)` at engine start.
   evidence: Review of Story 1.5 (edge-case-hunter), unverified (medium if true). Settle by opening the app with an empty card reader or USB slot under `tauri dev`.
+
+## Deferred from: Story 1.6 build review (2026-11-09)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-6-open-a-file-and-show-it-in-its-folder.md`
+  summary: `open_file` calls `ShellExecuteExW` with `hwnd` null, so Windows' "Open with" or error dialog may appear behind the app window; if it does, pass the main window's HWND.
+  evidence: Review of Story 1.6 (edge-case-hunter, blind-hunter), unverified (medium if true). Settle under `tauri dev` by opening a file type with no associated app, and a file deleted after listing.

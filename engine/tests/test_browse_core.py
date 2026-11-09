@@ -7,7 +7,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from core.browse import CANCEL_CHECK_EVERY, list_folder
+from core.browse import CANCEL_CHECK_EVERY, join_path, list_folder, split_path
 from core.cancel import Cancelled, CancelToken
 from core.candidates import is_candidate
 from core.ports.filesystem import (
@@ -71,6 +71,14 @@ class FakeFs:
             if key.casefold() == path.casefold():
                 return key
         raise FileNotFoundError(path)
+
+    def locate(self, path: str) -> tuple[str, str | None]:
+        root, names = split_path(path)
+        if not names:
+            raise FileNotFoundError(path)
+        folder = self.resolve(join_path(root, names[:-1]))
+        found = (e.name for e in self.folders[folder] if e.name.casefold() == names[-1].casefold())
+        return folder, next(found, None)
 
     def list(self, path: str) -> Iterator[FsEntry]:
         self.listed.append(path)

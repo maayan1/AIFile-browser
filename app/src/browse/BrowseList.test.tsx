@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { t } from "@/i18n/catalog";
 import type { FolderListing } from "@/protocol/generated";
 import { BrowseList } from "./BrowseList";
-import { INITIAL_SNAPSHOT, type BrowseSnapshot } from "./session";
+import { INITIAL_SNAPSHOT, type BrowseActions, type BrowseSnapshot } from "./session";
 
 afterEach(cleanup);
 
@@ -21,8 +21,29 @@ const LISTING: FolderListing = {
   ],
 };
 
+const DOCS = LISTING.path;
+
 const snapshot = (change: Partial<BrowseSnapshot>): BrowseSnapshot => ({ ...INITIAL_SNAPSHOT, ...change });
 const loaded = (listing: FolderListing = LISTING): BrowseSnapshot => snapshot({ listing, location: listing.path });
+const row = (name: string) => screen.getByText(name).closest("tr")!;
+const selectedNames = () =>
+  screen
+    .getAllByRole("row")
+    .filter((r) => r.getAttribute("aria-selected") === "true")
+    .map((r) => within(r).getAllByRole("cell")[0].textContent);
+
+function fakeActions(): { [K in keyof BrowseActions]: Mock<BrowseActions[K]> } {
+  return {
+    open: vi.fn<BrowseActions["open"]>(),
+    openTyped: vi.fn<BrowseActions["openTyped"]>(),
+    openFile: vi.fn<BrowseActions["openFile"]>(),
+    showInFolder: vi.fn<BrowseActions["showInFolder"]>(),
+    back: vi.fn<BrowseActions["back"]>(),
+    forward: vi.fn<BrowseActions["forward"]>(),
+    up: vi.fn<BrowseActions["up"]>(),
+    clearPathError: vi.fn<BrowseActions["clearPathError"]>(),
+  };
+}
 
 function rowNames(): string[] {
   const [, ...rows] = screen.getAllByRole("row");
@@ -141,23 +162,79 @@ describe("BrowseList", () => {
     expect(row("Budget תקציב.pdf").getAttribute("aria-selected")).toBe("true");
   });
 
-  it("opens a folder row on double-click or Enter, and files do nothing yet", () => {
-    const onOpen = vi.fn();
-    render(<BrowseList snapshot={loaded()} onOpen={onOpen} />);
-    const row = (name: string) => screen.getByText(name).closest("tr")!;
+  it("opens a folder row in the app and a file row in its default app, on double-click or Enter", () => {
+    const actions = fakeActions();
+    render(<BrowseList snapshot={loaded()} actions={actions} />);
 
     fireEvent.doubleClick(row("Photos"));
-    expect(onOpen).toHaveBeenLastCalledWith("C:\\Users\\dana\\Documents\\Photos");
-
+    expect(actions.open).toHaveBeenLastCalledWith(`${DOCS}\\Photos`);
     fireEvent.click(row("Photos"));
     fireEvent.keyDown(row("Photos"), { key: "Enter" });
-    expect(onOpen).toHaveBeenCalledTimes(2);
+    expect(actions.open).toHaveBeenCalledTimes(2);
 
     fireEvent.doubleClick(row("סיכום ישיבה 3.docx"));
-    fireEvent.click(row("סיכום ישיבה 3.docx"));
-    fireEvent.keyDown(row("סיכום ישיבה 3.docx"), { key: "Enter" });
+    expect(actions.openFile).toHaveBeenLastCalledWith(`${DOCS}\\סיכום ישיבה 3.docx`);
+    fireEvent.click(row("Budget תקציב.pdf"));
+    fireEvent.keyDown(row("Budget תקציב.pdf"), { key: "Enter" });
+    expect(actions.openFile).toHaveBeenLastCalledWith(`${DOCS}\\Budget תקציב.pdf`);
+    expect(actions.openFile).toHaveBeenCalledTimes(2);
+
+    // Other keys, and Enter with a modifier, open nothing.
     fireEvent.keyDown(row("Photos"), { key: " " });
-    expect(onOpen).toHaveBeenCalledTimes(2);
+    fireEvent.keyDown(row("Photos"), { key: "Enter", ctrlKey: true });
+    expect(actions.open).toHaveBeenCalledTimes(2);
+    expect(actions.openFile).toHaveBeenCalledTimes(2);
+    expect(actions.showInFolder).not.toHaveBeenCalled();
+  });
+
+  it("shows the row Show in folder named as selected, scrolled into view and focused", () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    try {
+      const { rerender } = render(<BrowseList snapshot={loaded({ ...LISTING, selected: "Budget תקציב.pdf" })} />);
+      expect(selectedNames()).toEqual(["Budget תקציב.pdf"]);
+      expect(row("Budget תקציב.pdf").tabIndex).toBe(0);
+      expect(document.activeElement).toBe(row("Budget תקציב.pdf"));
+      expect(scrolled.mock.contexts).toEqual([row("Budget תקציב.pdf")]);
+
+      // Until the user selects another row in that listing.
+      fireEvent.click(row("Photos"));
+      expect(selectedNames()).toEqual(["Photos"]);
+
+      // A listing without `selected` selects nothing and scrolls nothing.
+      rerender(<BrowseList snapshot={loaded({ ...LISTING, id: "u3" })} />);
+      expect(selectedNames()).toEqual([]);
+      expect(scrolled).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
+  });
+
+  it("acts once for a held Enter or Ctrl+Shift+E, ignoring the key's repeats", () => {
+    const actions = fakeActions();
+    render(<BrowseList snapshot={loaded()} actions={actions} />);
+    const file = row("Budget תקציב.pdf");
+    fireEvent.click(file);
+    fireEvent.keyDown(file, { key: "Enter" });
+    fireEvent.keyDown(file, { key: "Enter", repeat: true });
+    fireEvent.keyDown(file, { key: "Enter", repeat: true });
+    expect(actions.openFile).toHaveBeenCalledTimes(1);
+    const showKey = { key: "E", code: "KeyE", ctrlKey: true, shiftKey: true };
+    fireEvent.keyDown(file, showKey);
+    fireEvent.keyDown(file, { ...showKey, repeat: true });
+    expect(actions.showInFolder).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs Show in folder for the row on Ctrl+Shift+E", () => {
+    const actions = fakeActions();
+    render(<BrowseList snapshot={loaded()} actions={actions} />);
+    fireEvent.click(row("Budget תקציב.pdf"));
+    fireEvent.keyDown(row("Budget תקציב.pdf"), { key: "E", code: "KeyE", ctrlKey: true, shiftKey: true });
+    expect(actions.showInFolder).toHaveBeenCalledWith(`${DOCS}\\Budget תקציב.pdf`);
+    // Without Shift, or with Alt too, it does nothing.
+    fireEvent.keyDown(row("Budget תקציב.pdf"), { key: "e", code: "KeyE", ctrlKey: true });
+    fireEvent.keyDown(row("Budget תקציב.pdf"), { key: "E", code: "KeyE", ctrlKey: true, shiftKey: true, altKey: true });
+    expect(actions.showInFolder).toHaveBeenCalledTimes(1);
   });
 
   it("starts a new listing with nothing selected", () => {

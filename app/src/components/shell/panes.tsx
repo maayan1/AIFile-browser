@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useId, useLayoutEffect, useRef } from "react";
 import { BrowseList } from "@/browse/BrowseList";
 import type { BrowseActions, BrowseSnapshot } from "@/browse/session";
 import { t, type CatalogKey } from "@/i18n/catalog";
@@ -76,16 +76,17 @@ function NavGroup({ heading, entries, onOpen }: { heading: CatalogKey; entries: 
 }
 
 // No top padding: the list's sticky header sits flush with the top of the scrolling area.
-// Each folder opens scrolled to its top; a re-list of the same folder keeps the position.
+// Each folder opens scrolled to its top; a re-list of the same folder keeps the position. A layout
+// effect, so it runs before the list scrolls a Show in folder row into view.
 export function MainArea({ browse, actions }: { browse?: BrowseSnapshot; actions?: BrowseActions }) {
   const scroller = useRef<HTMLElement>(null);
   const location = browse?.location ?? null;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (scroller.current) scroller.current.scrollTop = 0;
   }, [location]);
   return (
     <main ref={scroller} aria-label={t("main.label")} className="min-w-0 flex-1 overflow-auto bg-background px-4">
-      <BrowseList snapshot={browse} onOpen={actions && ((path) => actions.open(path))} />
+      <BrowseList snapshot={browse} actions={actions} />
     </main>
   );
 }

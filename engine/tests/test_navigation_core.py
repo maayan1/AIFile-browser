@@ -1,4 +1,4 @@
-"""Core path rules with a fake FileSystemPort (spec 1.5): parent, breadcrumb segments, locations."""
+"""Core path rules with a fake FileSystemPort (spec 1.5, 1.6): parent, breadcrumb segments, locations, show in folder."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from core.browse import FolderUnreadable, list_folder, parent_of, segments_of, split_path
-from core.cancel import CancelToken
+from core.browse import FolderUnreadable, list_folder, parent_of, segments_of, show_in_folder, split_path
+from core.cancel import Cancelled, CancelToken
 from core.locations import KNOWN_FOLDER_CODES, locations
-from core.ports.filesystem import Drive
-from tests.test_browse_core import FakeFs, folder
+from core.ports.filesystem import FILE_ATTRIBUTE_HIDDEN, Drive
+from tests.test_browse_core import FakeFs, file, folder
 
 DOCS = r"C:\Users\dana\Documents"
 DESKTOP = r"C:\Users\dana\Desktop"
@@ -188,3 +188,60 @@ def test_a_folder_that_resolves_but_cannot_be_listed_carries_its_place() -> None
             {"kind": "folder", "name": "Private", "path": path},
         ],
     }
+
+
+# ----- show_in_folder (spec 1.6) --------------------------------------------
+
+
+def test_show_in_folder_lists_the_containing_folder_and_selects_the_item() -> None:
+    work = r"D:\Work"
+    fs = FakeFs({work: [folder("2025"), file("Report.pdf")]}, documents=DOCS)
+    listing = show_in_folder(fs, r"d:\work\REPORT.PDF", CancelToken())
+    assert fs.listed == [work]
+    assert listing["path"] == work
+    assert listing["parent"] == "D:\\"
+    assert listing["selected"] == "Report.pdf"  # the on-disk name, as listed
+    assert [e["name"] for e in listing["entries"]] == ["2025", "Report.pdf"]
+    # A folder is an item too.
+    assert show_in_folder(fs, r"D:\Work\2025", CancelToken())["selected"] == "2025"
+
+
+def test_show_in_folder_selects_nothing_for_a_gone_or_hidden_item() -> None:
+    work = r"D:\Work"
+    fs = FakeFs({work: [file("a.txt"), file("hidden.txt", FILE_ATTRIBUTE_HIDDEN)]}, documents=DOCS)
+    gone = show_in_folder(fs, r"D:\Work\gone.txt", CancelToken())
+    assert gone["path"] == work and "selected" not in gone
+    hidden = show_in_folder(fs, r"D:\Work\hidden.txt", CancelToken())
+    assert [e["name"] for e in hidden["entries"]] == ["a.txt"] and "selected" not in hidden
+
+
+def test_show_in_folder_lets_folder_errors_through() -> None:
+    fs = fs_with(DOCS)
+    with pytest.raises(FileNotFoundError):
+        show_in_folder(fs, r"C:\nope\a.txt", CancelToken())
+    with pytest.raises(FileNotFoundError):
+        show_in_folder(fs, "C:\\", CancelToken())
+    assert fs.listed == []
+
+
+def test_show_in_folder_of_an_unreadable_folder_carries_its_place() -> None:
+    private = DOCS + r"\Private"
+
+    class DeniedFs(FakeFs):
+        def list(self, path: str):  # type: ignore[no-untyped-def]
+            raise PermissionError(13, "Access is denied")
+            yield
+
+    with pytest.raises(FolderUnreadable) as caught:
+        show_in_folder(DeniedFs({private: []}, documents=DOCS), private + r"\a.txt", CancelToken())
+    assert caught.value.place["path"] == private
+    assert caught.value.place["parent"] == DOCS
+
+
+def test_show_in_folder_stops_when_cancelled() -> None:
+    fs = FakeFs({r"D:\Work": [file("a.txt")]}, documents=DOCS)
+    token = CancelToken()
+    token.cancel()
+    with pytest.raises(Cancelled):
+        show_in_folder(fs, r"D:\Work\a.txt", token)
+    assert fs.listed == []

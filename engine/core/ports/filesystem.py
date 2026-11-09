@@ -83,6 +83,17 @@ class FileSystemPort(Protocol):
         """
         ...
 
+    def locate(self, path: str) -> tuple[str, str | None]:
+        """Where an item (file or folder) is: its containing folder, resolved as `resolve` does,
+        and the item's on-disk name in that folder, or None when the folder has no such item.
+        The path is normalized as `resolve` normalizes it.
+
+        Raises FileNotFoundError for a drive or share root (nothing contains it), for an empty,
+        relative or invalid path, or when the containing folder is missing; otherwise the errors
+        `resolve` raises for the containing folder.
+        """
+        ...
+
     def list(self, path: str) -> Iterable[FsEntry]:
         """The entries of one folder, in no particular order, read lazily.
 

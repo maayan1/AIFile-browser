@@ -2,7 +2,7 @@
 
 Attributes come from directory enumeration only: on Windows, `DirEntry.stat(follow_symlinks=False)`
 returns what FindFirstFile/FindNextFile already reported, so no file is opened and no OneDrive
-placeholder is recalled (AD-8). `resolve` reads each segment's on-disk casing the same way.
+placeholder is recalled (AD-8). `resolve` and `locate` read each segment's on-disk casing the same way.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ KNOWN_FOLDER_IDS = {
 DRIVE_REMOVABLE = 2
 DRIVE_FIXED = 3
 
+ERROR_FILE_NOT_FOUND = 2
 ERROR_ACCESS_DENIED = 5
 
 # Characters no Windows file name may hold; `*` and `?` would also turn FindFirstFileW into a search.
@@ -102,6 +103,30 @@ def _invalid_name(name: str) -> bool:
     return any(ch in INVALID_NAME_CHARS for ch in name)
 
 
+def _split(path: str) -> tuple[str, list[str]]:
+    """A typed path's root (`C:\\`, `\\\\server\\share\\`) and the names under it (AD-9): trimmed,
+    surrounding quotes stripped, `.`/`..` and doubled separators collapsed, the drive letter
+    upper-case. Raises FileNotFoundError for an empty, relative, device or invalid path."""
+    text = path.strip()
+    if len(text) >= 2 and text[0] == text[-1] == '"':
+        text = text[1:-1].strip()
+    # Relative paths would resolve against the engine's working folder, which means nothing
+    # to the user. Device paths (\\?\, \\.\) are not something a user types either; they are
+    # checked after normpath, which turns mixed separators (/\?\C:\) into one.
+    if not text or not ntpath.isabs(text):
+        raise FileNotFoundError(path)
+    normalized = ntpath.normpath(text)
+    if normalized.startswith(("\\\\?\\", "\\\\.\\")):
+        raise FileNotFoundError(path)
+    drive, _, tail = ntpath.splitroot(normalized)
+    if len(drive) == 2 and drive[1] == ":":
+        drive = drive.upper()
+    names = [name for name in tail.split("\\") if name]
+    if any(_invalid_name(name) for name in names):
+        raise FileNotFoundError(path)
+    return drive + "\\", names
+
+
 class WindowsFileSystem:
     def __init__(self) -> None:
         self._kernel32 = _kernel32()
@@ -142,30 +167,39 @@ class WindowsFileSystem:
         return name.value or None
 
     def resolve(self, path: str) -> str:
-        text = path.strip()
-        if len(text) >= 2 and text[0] == text[-1] == '"':
-            text = text[1:-1].strip()
-        # Relative paths would resolve against the engine's working folder, which means nothing
-        # to the user. Device paths (\\?\, \\.\) are not something a user types either; they are
-        # checked after normpath, which turns mixed separators (/\?\C:\) into one.
-        if not text or not ntpath.isabs(text):
-            raise FileNotFoundError(path)
-        normalized = ntpath.normpath(text)
-        if normalized.startswith(("\\\\?\\", "\\\\.\\")):
-            raise FileNotFoundError(path)
-        drive, _, tail = ntpath.splitroot(normalized)
-        if len(drive) == 2 and drive[1] == ":":
-            drive = drive.upper()
-        root = drive + "\\"
-        names = [name for name in tail.split("\\") if name]
-        if any(_invalid_name(name) for name in names):
-            raise FileNotFoundError(path)
+        resolved, attributes = self._walk(*_split(path))
+        if not attributes & FILE_ATTRIBUTE_DIRECTORY:
+            raise NotADirectoryError(path)
+        return resolved
 
-        # One FindFirstFileW per segment: the parent's enumeration names it in its on-disk casing.
-        # A file midway fails the next lookup (ERROR_DIRECTORY or ERROR_PATH_NOT_FOUND). A root is
-        # not looked up; listing it reports a missing or not-ready drive.
-        # A parent the user may pass through but not list (traverse rights only) can't name its
-        # child: keep the typed segment and its unknown attributes, and let list() decide.
+    def locate(self, path: str) -> tuple[str, str | None]:
+        root, names = _split(path)
+        if not names:
+            raise FileNotFoundError(path)  # a drive or share root has no containing folder
+        folder, attributes = self._walk(root, names[:-1])
+        if not attributes & FILE_ATTRIBUTE_DIRECTORY:
+            raise NotADirectoryError(path)
+        try:
+            data = _find(self._kernel32, ntpath.join(folder, names[-1]))
+        except OSError as exc:
+            winerror = getattr(exc, "winerror", None)
+            if winerror == ERROR_FILE_NOT_FOUND:
+                return folder, None
+            if winerror == ERROR_ACCESS_DENIED:
+                # Traverse rights only: the folder can't name its items, and listing it will say so.
+                return folder, names[-1]
+            raise
+        return folder, data.cFileName
+
+    def _walk(self, root: str, names: list[str]) -> tuple[str, int]:
+        """The path below `root` in on-disk casing, and the attributes of its last segment.
+
+        One FindFirstFileW per segment: the parent's enumeration names it in its on-disk casing.
+        A file midway fails the next lookup (ERROR_DIRECTORY or ERROR_PATH_NOT_FOUND). A root is
+        not looked up; listing it reports a missing or not-ready drive.
+        A parent the user may pass through but not list (traverse rights only) can't name its
+        child: keep the typed segment and its unknown attributes, and let list() decide.
+        """
         resolved = root
         attributes = FILE_ATTRIBUTE_DIRECTORY
         for name in names:
@@ -179,9 +213,7 @@ class WindowsFileSystem:
                 continue
             resolved = ntpath.join(resolved, data.cFileName)
             attributes = data.dwFileAttributes
-        if not attributes & FILE_ATTRIBUTE_DIRECTORY:
-            raise NotADirectoryError(path)
-        return resolved
+        return resolved, attributes
 
     def list(self, path: str) -> Iterator[FsEntry]:
         # A relative path would resolve against the engine's working folder, which means nothing

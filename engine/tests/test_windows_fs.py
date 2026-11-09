@@ -196,6 +196,45 @@ def test_resolve_passes_through_a_parent_that_can_be_traversed_but_not_listed(tm
         subprocess.run(["icacls", str(locked), "/remove:d", "*S-1-1-0"], check=True, capture_output=True)
 
 
+# ----- locate (spec 1.6) ----------------------------------------------------
+
+
+def test_locate_restores_the_on_disk_casing_of_the_folder_and_the_item(tree: Path) -> None:
+    fs = WindowsFileSystem()
+    assert fs.locate(str(tree / "a.txt").upper()) == (str(tree), "a.txt")
+    typed = str(tree / "Meeting Notes" / ".." / "A.TXT").lower()
+    assert fs.locate(f'  "{typed}"  ') == (str(tree), "a.txt")
+    assert fs.locate(str(tree / "סיכום")) == (str(tree), "סיכום")
+
+
+def test_locate_names_a_folder_item_without_its_trailing_separator(tree: Path) -> None:
+    assert WindowsFileSystem().locate(str(tree / "meeting notes") + os.sep) == (str(tree), "Meeting Notes")
+
+
+def test_locate_reports_a_missing_item_in_an_existing_folder_as_none(tree: Path) -> None:
+    assert WindowsFileSystem().locate(str(tree / "gone.txt")) == (str(tree), None)
+
+
+def test_locate_raises_for_a_missing_folder_a_file_midway_and_a_root(tree: Path) -> None:
+    fs = WindowsFileSystem()
+    with pytest.raises(FileNotFoundError):
+        fs.locate(str(tree / "gone" / "a.txt"))
+    with pytest.raises(NotADirectoryError):
+        fs.locate(str(tree / "a.txt" / "b.txt"))
+    drive = os.environ.get("SystemDrive", "C:")
+    for root in [drive + "\\", drive.lower() + "\\", drive + r"\Windows\.."]:
+        with pytest.raises(FileNotFoundError):
+            fs.locate(root)
+
+
+@pytest.mark.parametrize(
+    "typed", ["", "   ", r"relative\a.txt", "C:a.txt", "\\\\?\\C:\\a.txt", r"C:\a<b.txt", r"C:\Users\a*"]
+)
+def test_locate_rejects_empty_relative_device_and_invalid_paths(typed: str) -> None:
+    with pytest.raises(FileNotFoundError):
+        WindowsFileSystem().locate(typed)
+
+
 class FakeKernel32:
     """GetLogicalDrives / GetDriveTypeW / GetVolumeInformationW over a table of drives."""
 

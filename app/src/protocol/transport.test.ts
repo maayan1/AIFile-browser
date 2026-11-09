@@ -1,16 +1,18 @@
 // Pins the UI side of the shell's IPC contract to protocol/ipc.json. The Rust side asserts the
-// same file in engine.rs, so a rename on either side fails a test instead of the real app.
+// same file in engine.rs and open.rs, so a rename on either side fails a test instead of the real app.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { invoke, listen } = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen }));
 
+import { openFile } from "../shell/open";
 import { ENGINE_MESSAGE_EVENT, ENGINE_STATE_EVENT, tauriTransport } from "./client";
 
 interface Ipc {
-  commands: { send: string; ready: string; state: string };
+  commands: { send: string; ready: string; state: string; openFile: string };
   sendArgument: string;
+  openFileArgument: string;
   events: { message: string; state: string };
 }
 
@@ -44,6 +46,12 @@ describe("tauriTransport", () => {
       [ipc.commands.ready],
       [ipc.commands.state],
     ]);
+  });
+
+  it("opens a file through the shell's open command with its argument name", async () => {
+    const path = "C:\\Users\\dana\\Documents\\סיכום ישיבה 3.docx";
+    await openFile(path);
+    expect(invoke.mock.calls).toEqual([[ipc.commands.openFile, { [ipc.openFileArgument]: path }]]);
   });
 
   it("listens on the shell's events and passes their payloads through", async () => {

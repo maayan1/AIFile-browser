@@ -60,10 +60,13 @@ function fakeShell(cachedReady: string | null = null) {
   };
 }
 
-async function started(shell: ReturnType<typeof fakeShell>) {
+async function started(
+  shell: ReturnType<typeof fakeShell>,
+  opener: (path: string) => Promise<void> = async () => {},
+) {
   let n = 0;
   const client = new ProtocolClient(shell.transport, () => `u${++n}`);
-  const session = new BrowseSession(client);
+  const session = new BrowseSession(client, opener);
   const seen: BrowseSnapshot[] = [];
   session.subscribe((s) => seen.push(s));
   await client.start();
@@ -73,9 +76,9 @@ async function started(shell: ReturnType<typeof fakeShell>) {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /** Starts a session that has listed Documents (request u1; u2 asked for the locations). */
-async function inDocuments() {
+async function inDocuments(opener?: (path: string) => Promise<void>) {
   const shell = fakeShell();
-  const result = await started(shell);
+  const result = await started(shell, opener);
   shell.engineReady();
   shell.line(listing("u1"));
   await flush();
@@ -349,6 +352,102 @@ describe("BrowseSession", () => {
     await flush();
     expect(session.snapshot.error).toBeNull();
     expect(session.snapshot.location).toBe(DOCS);
+  });
+
+  it("sends showInFolder, keeps the item to select and pushes the folder on history", async () => {
+    const { shell, session } = await inDocuments();
+    session.showInFolder("d:\\work\\Report.PDF");
+    const request = shell.sent.at(-1)!;
+    expect(request).toEqual({ id: request.id, type: "showInFolder", path: "d:\\work\\Report.PDF" });
+    expect(session.snapshot.loading).toBe(true);
+
+    const reply = { ...JSON.parse(listing(request.id as string, WORK, ["Report.pdf"])), selected: "Report.pdf" };
+    shell.line(JSON.stringify(reply));
+    await flush();
+    expect(session.snapshot).toMatchObject({ location: WORK, error: null, loading: false, canBack: true });
+    expect(session.snapshot.listing?.selected).toBe("Report.pdf");
+    expect(session.snapshot.place?.path).toBe(WORK);
+
+    // Back returns to Documents with a plain listing.
+    await openAndReply(shell, () => session.back());
+    expect(shell.lastList().path).toBe(DOCS);
+    expect(session.snapshot).toMatchObject({ location: DOCS, canBack: false, canForward: true });
+  });
+
+  it("shows an item in the current folder without a history entry", async () => {
+    const { shell, session } = await inDocuments();
+    session.showInFolder(`${DOCS}\\a.txt`);
+    const id = shell.sent.at(-1)!.id as string;
+    shell.line(JSON.stringify({ ...JSON.parse(listing(id)), selected: "a.txt" }));
+    await flush();
+    expect(session.snapshot).toMatchObject({ location: DOCS, canBack: false, canForward: false });
+    expect(session.snapshot.listing?.selected).toBe("a.txt");
+  });
+
+  it("shows a Show in folder error like a failed open, and a newer request replaces it", async () => {
+    const { shell, session } = await inDocuments();
+    const place = { path: WORK, parent: "D:\\", segments: [{ kind: "folder", name: WORK, path: WORK }] };
+    session.showInFolder(`${WORK}\\a.txt`);
+    shell.line(JSON.stringify({ id: shell.sent.at(-1)!.id, type: "error", code: "accessDenied", data: place }));
+    await flush();
+    expect(session.snapshot).toMatchObject({ listing: null, place, location: WORK, error: "accessDenied", canBack: true });
+
+    // A listing sent after a Show in folder wins, whatever order the replies come in.
+    session.showInFolder(`${DOCS}\\a.txt`);
+    const stale = shell.sent.at(-1)!.id as string;
+    session.open(VOL);
+    shell.line(listing(shell.lastList().id, VOL));
+    shell.line(JSON.stringify({ ...JSON.parse(listing(stale)), selected: "a.txt" }));
+    await flush();
+    expect(session.snapshot.location).toBe(VOL);
+    expect(session.snapshot.listing?.selected).toBeUndefined();
+  });
+
+  it("keeps the current location when Show in folder fails without a place", async () => {
+    const { shell, session } = await inDocuments();
+    await openAndReply(shell, () => session.open(VOL));
+    session.showInFolder("D:\\Gone\\a.txt");
+    shell.line(failure(shell.sent.at(-1)!.id as string, "folderNotFound"));
+    await flush();
+    expect(session.snapshot).toMatchObject({
+      listing: null,
+      place: null,
+      location: VOL,
+      error: "folderNotFound",
+      canBack: true,
+      canForward: false,
+    });
+    // The item's path never enters history: reload and Back list folders only.
+    session.reload();
+    expect(shell.lastList().path).toBe(VOL);
+    await openAndReply(shell, () => session.back());
+    expect(shell.lastList().path).toBe(DOCS);
+    expect(session.snapshot.canBack).toBe(false);
+  });
+
+  it("opens a file with the opener only: no request, nothing on screen changes", async () => {
+    const opener = vi.fn(async (_path: string) => {});
+    const { shell, session, seen } = await inDocuments(opener);
+    const sent = shell.sent.length;
+    const updates = seen.length;
+    session.openFile(`${DOCS}\\a.txt`);
+    await flush();
+    expect(opener).toHaveBeenCalledWith(`${DOCS}\\a.txt`);
+    expect(shell.sent.length).toBe(sent);
+    expect(seen.length).toBe(updates);
+  });
+
+  it("logs a file that could not be opened, and shows nothing", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { session, seen } = await inDocuments(async () => {
+      throw new Error("refused");
+    });
+    const updates = seen.length;
+    session.openFile("relative.txt");
+    await flush();
+    expect(errors).toHaveBeenCalledWith("openFile failed", expect.any(Error));
+    expect(seen.length).toBe(updates);
+    errors.mockRestore();
   });
 
   it("stops notifying after stop", async () => {

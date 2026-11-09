@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "FolderListing",
-  "description": "Terminal reply to listFolder: the folder's normalized display path, its parent, its breadcrumb segments and its candidate entries, unsorted. Codes and data only; the UI words every segment, type, size and date.",
+  "description": "Terminal reply to listFolder and showInFolder: the folder's normalized display path, its parent, its breadcrumb segments and its candidate entries, unsorted. Codes and data only; the UI words every segment, type, size and date.",
   "type": "object",
   "properties": {
     "id": { "type": "string", "minLength": 1 },
@@ -25,7 +25,8 @@
       "items": {
         "oneOf": [{ "$ref": "#/definitions/folderEntry" }, { "$ref": "#/definitions/fileEntry" }]
       }
-    }
+    },
+    "selected": { "description": "showInFolder only: the name of the entry to select, as listed in entries. Absent when the item isn't listed (gone, or hidden).", "type": "string", "minLength": 1 }
   },
   "required": ["id", "type", "path", "parent", "segments", "entries"],
   "additionalProperties": false,

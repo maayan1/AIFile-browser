@@ -35,6 +35,8 @@ function fakeActions(): { [K in keyof BrowseActions]: Mock<BrowseActions[K]> } {
   return {
     open: vi.fn<BrowseActions["open"]>(),
     openTyped: vi.fn<BrowseActions["openTyped"]>(),
+    openFile: vi.fn<BrowseActions["openFile"]>(),
+    showInFolder: vi.fn<BrowseActions["showInFolder"]>(),
     back: vi.fn<BrowseActions["back"]>(),
     forward: vi.fn<BrowseActions["forward"]>(),
     up: vi.fn<BrowseActions["up"]>(),

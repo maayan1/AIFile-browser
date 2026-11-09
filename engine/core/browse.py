@@ -1,4 +1,5 @@
-"""list_folder(): one folder's candidate entries as protocol data (codes, never words).
+"""list_folder(): one folder's candidate entries as protocol data (codes, never words), and
+show_in_folder(): the same for the folder that holds an item, naming the item to select.
 
 The path rules live here too (AD-9): the port resolves the incoming path, and the core derives the
 folder's parent and its breadcrumb segments from the resolved string. The core never touches the
@@ -54,6 +55,20 @@ def list_folder(fs: FileSystemPort, path: str | None, token: CancelToken) -> dic
         raise FolderUnreadable(exc, place) from exc
     token.raise_if_cancelled()
     return {**place, "entries": entries}
+
+
+def show_in_folder(fs: FileSystemPort, path: str, token: CancelToken) -> dict[str, Any]:
+    """list_folder's listing of the folder that holds `path`, plus `selected`: the item's name,
+    only when the item is among the listed entries (a gone or hidden item selects nothing).
+
+    Raises what list_folder raises for that folder, and FileNotFoundError for a drive or share root.
+    """
+    token.raise_if_cancelled()
+    folder, name = fs.locate(path)
+    listing = list_folder(fs, folder, token)
+    if name is not None and any(entry["name"] == name for entry in listing["entries"]):
+        listing["selected"] = name
+    return listing
 
 
 def place_of(fs: FileSystemPort, folder: str) -> dict[str, Any]:

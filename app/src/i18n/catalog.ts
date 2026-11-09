@@ -29,6 +29,11 @@ export const catalog = {
   "column.size": "Size",
   "column.modified": "Modified",
 
+  // The browse list's context menu: only these two items, ever (read-only, C-4).
+  "menu.label": "File actions",
+  "menu.open": "Open",
+  "menu.showInFolder": "Show in folder",
+
   // Browse list states. The error keys are the engine's error codes.
   "browse.empty": "This folder is empty.",
   "browse.folderNotFound": "This folder doesn't exist.",

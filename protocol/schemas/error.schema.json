@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ErrorMessage",
-  "description": "Terminal error reply. id echoes the request id, or is null when the request could not be read. code is listed in protocol/codes.json. For listFolder: folderNotFound (missing, not a folder, relative or invalid path), accessDenied, or folderUnavailable (any other OS error: drive not ready, share unreachable); when the folder exists but can't be listed, data carries its place as folderListing words it: path, parent and segments.",
+  "description": "Terminal error reply. id echoes the request id, or is null when the request could not be read. code is listed in protocol/codes.json. For listFolder and showInFolder (about the item's folder): folderNotFound (missing, not a folder, relative or invalid path), accessDenied, or folderUnavailable (any other OS error: drive not ready, share unreachable); when the folder exists but can't be listed, data carries its place as folderListing words it: path, parent and segments.",
   "type": "object",
   "properties": {
     "id": { "type": ["string", "null"] },

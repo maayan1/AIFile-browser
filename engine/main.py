@@ -12,12 +12,13 @@ import logging
 import os
 import sys
 import threading
+from collections.abc import Callable
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from adapters.stdio_transport import PROTOCOL_VERSION, ChannelHandler, Message, StdioTransport, error
 from adapters.windows_fs import WindowsFileSystem
-from core.browse import FolderUnreadable, list_folder
+from core.browse import FolderUnreadable, list_folder, show_in_folder
 from core.cancel import CancelToken
 from core.locations import locations
 from core.ports.filesystem import FileSystemPort
@@ -79,24 +80,34 @@ def folder_error_code(exc: OSError) -> str:
     return FOLDER_UNAVAILABLE
 
 
-def list_folder_handler(fs: FileSystemPort) -> ChannelHandler:
-    """The `listFolder` channel handler: a folderListing, or the folder error as a protocol code."""
+def folder_handler(produce: Callable[[Message, CancelToken], Message]) -> ChannelHandler:
+    """A handler replying with `produce`'s folderListing, or the folder error as a protocol code."""
 
     def handle(request: Message, token: CancelToken) -> Message:
         try:
-            listing = list_folder(fs, request.get("path"), token)
+            listing = produce(request, token)
         except FolderUnreadable as exc:
             # The folder exists: its place rides along, so Up and the breadcrumb still work.
             code = folder_error_code(exc.error)
-            log.info("listFolder: %s (winerror %s)", code, getattr(exc.error, "winerror", None))
+            log.info("%s: %s (winerror %s)", request["type"], code, getattr(exc.error, "winerror", None))
             return {**error(request["id"], code), "data": exc.place}
         except OSError as exc:
             code = folder_error_code(exc)
-            log.info("listFolder: %s (winerror %s)", code, getattr(exc, "winerror", None))
+            log.info("%s: %s (winerror %s)", request["type"], code, getattr(exc, "winerror", None))
             return error(request["id"], code)
         return {"id": request["id"], "type": "folderListing", **listing}
 
     return handle
+
+
+def list_folder_handler(fs: FileSystemPort) -> ChannelHandler:
+    """The `listFolder` handler: a folderListing, or the folder error as a protocol code."""
+    return folder_handler(lambda request, token: list_folder(fs, request.get("path"), token))
+
+
+def show_in_folder_handler(fs: FileSystemPort) -> ChannelHandler:
+    """The `showInFolder` handler: the item's folder with the item selected, or the folder error."""
+    return folder_handler(lambda request, token: show_in_folder(fs, request["path"], token))
 
 
 def list_locations_handler(fs: FileSystemPort) -> ChannelHandler:
@@ -114,6 +125,8 @@ def main() -> int:
     transport = StdioTransport.open(validate=os.environ.get("FB2_VALIDATE_PROTOCOL") == "1")
     fs = WindowsFileSystem()
     transport.register_channel("listFolder", "listFolder", list_folder_handler(fs))
+    # The same channel: a Show in folder and a listing replace each other (latest wins).
+    transport.register_channel("showInFolder", "listFolder", show_in_folder_handler(fs))
     # Its own channel: reading a removable drive's label can block, and must never hold up a listing.
     transport.register_channel("listLocations", "locations", list_locations_handler(fs))
     transport.send({"id": None, "type": "ready", "protocolVersion": PROTOCOL_VERSION})

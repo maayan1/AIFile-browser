@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-02-2026 14:54
-last_updated: 11-09-2026 13:35
+last_updated: 2026-11-09
 project: AIFile browser
 project_key: NOKEY
 tracking_system: file-system
@@ -41,7 +41,7 @@ development_status:
   1-3-main-window-layout-and-visual-style: done
   1-4-browse-a-folder: review
   1-5-navigate-folders: done
-  1-6-open-a-file-and-show-it-in-its-folder: backlog
+  1-6-open-a-file-and-show-it-in-its-folder: review
   1-7-handle-folders-i-can-t-open: backlog
   1-8-browse-with-the-keyboard-alone: backlog
   1-9-confirm-the-app-makes-no-network-connections: backlog

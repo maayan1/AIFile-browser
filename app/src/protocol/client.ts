@@ -15,12 +15,18 @@ import type {
   Pong,
   ProtocolMessage,
   Ready,
+  ShowInFolder,
   Status,
   StatusReport,
 } from "./generated";
 
 /** Requests the UI may send; the client adds the `id`. */
-export type Request = Omit<Ping, "id"> | Omit<Status, "id"> | Omit<ListFolder, "id"> | Omit<ListLocations, "id">;
+export type Request =
+  | Omit<Ping, "id">
+  | Omit<Status, "id">
+  | Omit<ListFolder, "id">
+  | Omit<ShowInFolder, "id">
+  | Omit<ListLocations, "id">;
 /**
  * Terminal replies, matched to a request by `id`. `cancelled` ends a request that a newer one on
  * the same engine channel replaced (latest wins).

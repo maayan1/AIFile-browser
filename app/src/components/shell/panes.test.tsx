@@ -49,7 +49,16 @@ const snapshot = (place: Place | null, change: Partial<BrowseSnapshot> = {}): Br
 });
 
 function fakeActions(): BrowseActions {
-  return { open: vi.fn(), openTyped: vi.fn(), back: vi.fn(), forward: vi.fn(), up: vi.fn(), clearPathError: vi.fn() };
+  return {
+    open: vi.fn(),
+    openTyped: vi.fn(),
+    openFile: vi.fn(),
+    showInFolder: vi.fn(),
+    back: vi.fn(),
+    forward: vi.fn(),
+    up: vi.fn(),
+    clearPathError: vi.fn(),
+  };
 }
 
 const nav = () => within(screen.getByRole("navigation", { name: t("nav.label") }));
@@ -131,5 +140,27 @@ describe("MainArea", () => {
     expect(main.scrollTop).toBe(480);
     rerender(<MainArea browse={snapshot(AT_D)} />);
     expect(main.scrollTop).toBe(0);
+  });
+
+  it("resets the scroll for a new folder before the list scrolls a Show in folder row into view", () => {
+    const { rerender } = render(<MainArea browse={snapshot(IN_VOLUNTEERING)} />);
+    const main = screen.getByRole("main");
+    // The row's scroll lands at 480; a scroll-to-top that ran after it would undo it.
+    Element.prototype.scrollIntoView = () => {
+      main.scrollTop = 480;
+    };
+    try {
+      const listing = {
+        id: "u9",
+        type: "folderListing" as const,
+        ...AT_D,
+        entries: [{ name: "Report.pdf", kind: "file" as const, typeCode: "pdf" as const, size: 1, modified: null }],
+        selected: "Report.pdf",
+      };
+      rerender(<MainArea browse={snapshot(AT_D, { listing })} />);
+      expect(main.scrollTop).toBe(480);
+    } finally {
+      delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
   });
 });

@@ -2,9 +2,11 @@
   "commands": {
     "send": "engine_send",
     "ready": "engine_ready",
-    "state": "engine_state"
+    "state": "engine_state",
+    "openFile": "open_file"
   },
   "sendArgument": "line",
+  "openFileArgument": "path",
   "events": {
     "message": "engine-message",
     "state": "engine-state"

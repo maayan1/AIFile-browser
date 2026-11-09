@@ -409,3 +409,71 @@ def test_list_locations_replies_with_known_folders_and_drives(test_fs_engine: En
     assert system_letter in [d["letter"] for d in reply["drives"]]
     assert test_fs_engine.close() == 0
     assert no_schema_violations(tmp_path)
+
+
+# ----- showInFolder (spec 1.6 I/O matrix) ----------------------------------
+
+
+def test_show_in_folder_lists_the_folder_with_the_item_selected(test_fs_engine: Engine, tmp_path: Path) -> None:
+    docs: Path = test_fs_engine.documents  # type: ignore[attr-defined]
+    test_fs_engine.send({"id": "f1", "type": "showInFolder", "path": str(docs / "budget תקציב.PDF").lower()})
+    reply = test_fs_engine.read()
+    assert_valid(reply)
+    assert (reply["id"], reply["type"], reply["path"]) == ("f1", "folderListing", str(docs))
+    assert reply["selected"] == "Budget תקציב.pdf"
+    # A gone item still lists its folder, with nothing selected; a hidden lock file isn't listed.
+    for i, name in enumerate(["gone.txt", "~$סיכום ישיבה 3.docx"]):
+        test_fs_engine.send({"id": f"f{i + 2}", "type": "showInFolder", "path": str(docs / name)})
+        reply = test_fs_engine.read()
+        assert_valid(reply)
+        assert reply["path"] == str(docs) and "selected" not in reply
+    assert test_fs_engine.close() == 0
+    assert no_schema_violations(tmp_path)
+
+
+def test_show_in_folder_of_a_root_or_a_missing_folder_is_folder_not_found(engine: Engine, tmp_path: Path) -> None:
+    system_root = os.environ.get("SystemDrive", "C:") + "\\"
+    for i, path in enumerate([system_root, str(tmp_path / "gone" / "a.txt")]):
+        engine.send({"id": f"g{i}", "type": "showInFolder", "path": path})
+        assert engine.read() == {"id": f"g{i}", "type": "error", "code": "folderNotFound", "data": {}}
+
+
+def test_show_in_folder_in_a_folder_that_cannot_be_listed_carries_its_place(engine: Engine, tmp_path: Path) -> None:
+    denied = tmp_path / "denied"
+    denied.mkdir()
+    (denied / "a.txt").write_bytes(b"")
+    subprocess.run(["icacls", str(denied), "/deny", "*S-1-1-0:(RD)"], check=True, capture_output=True)
+    try:
+        # The folder can't name its items (traverse rights only), so listing it decides.
+        engine.send({"id": "g5", "type": "showInFolder", "path": str(denied / "a.txt").upper()})
+        reply = engine.read()
+        assert_valid(reply)
+        assert (reply["id"], reply["type"], reply["code"]) == ("g5", "error", "accessDenied")
+        assert reply["data"]["path"] == str(denied)
+        assert reply["data"]["parent"] == str(tmp_path)
+    finally:
+        subprocess.run(["icacls", str(denied), "/remove:d", "*S-1-1-0"], check=True, capture_output=True)
+
+
+def test_show_in_folder_without_a_path_is_invalid(engine: Engine) -> None:
+    engine.send({"id": "g9", "type": "showInFolder"})
+    assert engine.read() == {"id": "g9", "type": "error", "code": "invalidRequest", "data": {}}
+
+
+def test_show_in_folder_and_list_folder_cancel_each_other(test_fs_engine: Engine, tmp_path: Path) -> None:
+    docs: Path = test_fs_engine.documents  # type: ignore[attr-defined]
+    test_fs_engine.send({"id": "c1", "type": "listFolder", "path": "SLOW"})
+    test_fs_engine.send({"id": "c2", "type": "showInFolder", "path": str(docs / "Photos")})
+    assert test_fs_engine.read() == {"id": "c1", "type": "cancelled"}
+    reply = test_fs_engine.read()
+    assert (reply["id"], reply["type"], reply["selected"]) == ("c2", "folderListing", "Photos")
+    # And the other way round: a listing replaces a Show in folder that is still queued.
+    test_fs_engine.send({"id": "c3", "type": "listFolder", "path": "SLOW"})
+    test_fs_engine.send({"id": "c4", "type": "showInFolder", "path": str(docs / "Photos")})
+    test_fs_engine.send({"id": "c5", "type": "listFolder"})
+    assert test_fs_engine.read() == {"id": "c3", "type": "cancelled"}
+    assert test_fs_engine.read() == {"id": "c4", "type": "cancelled"}
+    latest = test_fs_engine.read()
+    assert (latest["id"], latest["type"]) == ("c5", "folderListing") and "selected" not in latest
+    assert test_fs_engine.close() == 0
+    assert no_schema_violations(tmp_path)

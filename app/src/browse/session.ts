@@ -3,14 +3,19 @@
 // lists the current folder again (Documents at first) and asks for the locations. It holds no
 // product rules: the engine normalizes paths, filters and types the entries and splits the
 // breadcrumb; the catalog words them. The UI only joins a listed folder's path with a child name.
+// Opening a file goes to the shell instead (the default app); it changes nothing here.
 import type { FolderListing, Locations } from "../protocol/generated";
-import { EngineStoppedError, type ProtocolClient } from "../protocol/client";
+import { EngineStoppedError, type ProtocolClient, type Request } from "../protocol/client";
+import { openFile as shellOpenFile } from "../shell/open";
 
 /** Where a folder is, as the engine describes it: its path, its parent and its breadcrumb. */
 export type Place = Pick<FolderListing, "path" | "parent" | "segments">;
 
 export interface BrowseSnapshot {
-  /** The last folder listing; kept while a newer one loads and while the engine restarts. */
+  /**
+   * The last folder listing; kept while a newer one loads and while the engine restarts. After
+   * Show in folder its `selected` names the item to select.
+   */
   listing: FolderListing | null;
   /**
    * The current folder's place: from its listing, or from the error of a folder that exists but
@@ -40,6 +45,10 @@ export interface BrowseActions {
   open(path: string): void;
   /** Opens a typed or pasted path; a failure only sets `pathError`. */
   openTyped(path: string): void;
+  /** Opens a file in its Windows default app; the list stays as it is. */
+  openFile(path: string): void;
+  /** Lists the folder that holds `path` (a file or folder) with that item selected. */
+  showInFolder(path: string): void;
   back(): void;
   forward(): void;
   up(): void;
@@ -75,6 +84,11 @@ function placeOf(data: Record<string, unknown>): Place | null {
 /** How a reply moves through history once it arrives. */
 type Move = "push" | "back" | "forward" | "stay";
 
+/** The requests whose reply is a folder listing (both on the engine's listFolder channel). */
+type FolderRequest = Extract<Request, { type: "listFolder" | "showInFolder" }>;
+
+const listFolder = (path: string): FolderRequest => ({ type: "listFolder", path });
+
 export class BrowseSession implements BrowseActions {
   private current: BrowseSnapshot = INITIAL_SNAPSHOT;
   private readonly listeners = new Set<(snapshot: BrowseSnapshot) => void>();
@@ -86,7 +100,10 @@ export class BrowseSession implements BrowseActions {
   private backStack: string[] = [];
   private forwardStack: string[] = [];
 
-  constructor(private readonly client: ProtocolClient) {
+  constructor(
+    private readonly client: ProtocolClient,
+    private readonly opener: (path: string) => Promise<void> = shellOpenFile,
+  ) {
     this.unsubscribe = client.onEvent((event) => {
       if (event.type !== "ready") return;
       this.reload();
@@ -106,30 +123,39 @@ export class BrowseSession implements BrowseActions {
 
   /** Lists the current folder again (Documents before the first one), keeping history. */
   reload(): void {
-    this.go(this.location ?? undefined, "stay");
+    this.go(this.location === null ? { type: "listFolder" } : listFolder(this.location), "stay");
   }
 
   open(path: string): void {
-    this.go(path, "push");
+    this.go(listFolder(path), "push");
   }
 
   openTyped(path: string): void {
-    this.go(path, "push", true);
+    this.go(listFolder(path), "push", true);
+  }
+
+  openFile(path: string): void {
+    // Windows shows its own dialog when the file can't be opened; the shell logs it.
+    this.opener(path).catch((err: unknown) => console.error("openFile failed", err));
+  }
+
+  showInFolder(path: string): void {
+    this.go({ type: "showInFolder", path }, "push");
   }
 
   back(): void {
     const target = this.backStack.at(-1);
-    if (target !== undefined) this.go(target, "back");
+    if (target !== undefined) this.go(listFolder(target), "back");
   }
 
   forward(): void {
     const target = this.forwardStack.at(-1);
-    if (target !== undefined) this.go(target, "forward");
+    if (target !== undefined) this.go(listFolder(target), "forward");
   }
 
   up(): void {
     const parent = this.current.place?.parent;
-    if (parent) this.go(parent, "push");
+    if (parent) this.go(listFolder(parent), "push");
   }
 
   clearPathError(): void {
@@ -143,14 +169,16 @@ export class BrowseSession implements BrowseActions {
   }
 
   /**
-   * Lists `path` (Documents when undefined). History changes only when the reply arrives, so a
-   * request that a newer one replaced, or that a restart ended, leaves it as it was.
+   * Sends a listing request (`listFolder`, or `showInFolder`, whose reply names the item to
+   * select). History changes only when the reply arrives, so a request that a newer one replaced,
+   * or that a restart ended, leaves it as it was.
    */
-  private go(path: string | undefined, move: Move, typed = false): void {
+  private go(message: FolderRequest, move: Move, typed = false): void {
     const request = ++this.latest;
+    const path = message.path;
     this.update(move === "stay" ? { loading: true } : { loading: true, pathError: null });
     this.client
-      .request(path === undefined ? { type: "listFolder" } : { type: "listFolder", path })
+      .request(message)
       .then((reply) => {
         if (request !== this.latest) return; // a newer request owns the list
         if (reply.type === "folderListing") {
@@ -163,9 +191,10 @@ export class BrowseSession implements BrowseActions {
             return;
           }
           // The folder that failed becomes the location, shown in the empty state; Back works,
-          // and when the folder exists its place keeps Up and the breadcrumb working too.
+          // and when the folder exists its place keeps Up and the breadcrumb working too. A
+          // showInFolder path names an item, not a folder: without a place it stays where it is.
           const place = placeOf(reply.data);
-          const where = place?.path ?? path;
+          const where = place?.path ?? (message.type === "showInFolder" ? (this.location ?? undefined) : path);
           if (where !== undefined) this.commit(move, where);
           this.update({ listing: null, place, location: this.location, error: reply.code, loading: false });
         }
@@ -175,7 +204,7 @@ export class BrowseSession implements BrowseActions {
         if (request !== this.latest) return;
         // A restart ended the request: keep what is on screen, the next `ready` lists again.
         this.update({ loading: false });
-        if (!(err instanceof EngineStoppedError)) console.error("listFolder request failed", err);
+        if (!(err instanceof EngineStoppedError)) console.error(`${message.type} request failed`, err);
       });
   }
 

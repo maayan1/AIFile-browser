@@ -35,12 +35,21 @@ vi.mock("./protocol/client", async (importOriginal) => {
   return { ...actual, tauriTransport: () => transport };
 });
 
+// The shell's opener: records each file the app asks Windows to open.
+const opened = vi.hoisted(() => [] as string[]);
+vi.mock("./shell/open", () => ({
+  openFile: async (path: string) => {
+    opened.push(path);
+  },
+}));
+
 // The dev readout logs to the console; keep test output quiet.
 vi.spyOn(console, "info").mockImplementation(() => {});
 
 afterEach(() => {
   cleanup();
   shell.sent.length = 0;
+  opened.length = 0;
 });
 
 const flush = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -131,6 +140,53 @@ describe("App", () => {
     await flush();
     expect(screen.getByRole("alert").textContent).toBe("This folder doesn't exist.");
     expect(within(screen.getByRole("main")).getByText("Photos")).toBeTruthy(); // the folder stays
+  });
+
+  it("shows a file in another folder with its row selected, and Back returns", async () => {
+    await readyApp();
+    reply(listingOf(lastRequest("listFolder").id, DOCS, [{ kind: "knownFolder", code: "documents", path: DOCS }]));
+    await flush();
+    const main = within(screen.getByRole("main"));
+    const docx = "סיכום ישיבה 3.docx";
+
+    // The context menu's Show in folder asks the engine on the listing channel.
+    act(() => fireEvent.contextMenu(main.getByText(docx), { button: 2, clientX: 50, clientY: 50 }));
+    act(() => fireEvent.click(screen.getByRole("menuitem", { name: t("menu.showInFolder") })));
+    const request = lastRequest("showInFolder");
+    expect(request.path).toBe(`${DOCS}\\${docx}`);
+
+    // The engine names the folder; here another one, as for a search result (Story 2.2).
+    const work = "D:\\Work";
+    reply({
+      ...listingOf(request.id, work, [
+        { kind: "drive", letter: "D", label: null, path: "D:\\" },
+        { kind: "folder", name: "Work", path: work },
+      ]),
+      parent: "D:\\",
+      selected: docx,
+    });
+    await flush();
+    const crumbs = within(screen.getByRole("group", { name: t("breadcrumb.label") }));
+    expect(crumbs.getByRole("button", { name: "Work" }).getAttribute("aria-current")).toBe("location");
+    const row = main.getByText(docx).closest("tr")!;
+    expect(row.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(row);
+    expect(main.getByText("Photos").closest("tr")!.getAttribute("aria-selected")).toBe("false");
+
+    act(() => fireEvent.click(screen.getByRole("button", { name: t("topBar.back") })));
+    expect(lastRequest("listFolder").path).toBe(DOCS);
+  });
+
+  it("opens a file through the shell and keeps the folder", async () => {
+    await readyApp();
+    reply(listingOf(lastRequest("listFolder").id, DOCS, [{ kind: "knownFolder", code: "documents", path: DOCS }]));
+    await flush();
+    const sent = shell.sent.length;
+    act(() => fireEvent.doubleClick(within(screen.getByRole("main")).getByText("סיכום ישיבה 3.docx")));
+    await flush();
+    expect(opened).toEqual([`${DOCS}\\סיכום ישיבה 3.docx`]);
+    expect(shell.sent.length).toBe(sent);
+    expect(within(screen.getByRole("main")).getByText("Photos")).toBeTruthy();
   });
 });
 
