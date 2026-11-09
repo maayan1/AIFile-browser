@@ -61,3 +61,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-6-open-a-file-and-show-it-in-its-folder.md`
   summary: `open_file` calls `ShellExecuteExW` with `hwnd` null, so Windows' "Open with" or error dialog may appear behind the app window; if it does, pass the main window's HWND.
   evidence: Review of Story 1.6 (edge-case-hunter, blind-hunter), unverified (medium if true). Settle under `tauri dev` by opening a file type with no associated app, and a file deleted after listing.
+
+## Deferred from: Story 1.7 build review (2026-11-09)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-7-handle-folders-i-cant-open.md`
+  summary: Decide whether `walk()` should also skip directories with FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS (partly virtualized contents, which enumerating may fetch), not only RECALL_ON_OPEN ones.
+  evidence: Review of Story 1.7 (edge-case-hunter), unverified (medium if true). Skipping them could also stop name search in ordinary OneDrive folders if those carry the bit. Settle on a PC with OneDrive Files On-Demand by reading the attributes of populated and online-only folders, before Epic 2's name search walks Documents.

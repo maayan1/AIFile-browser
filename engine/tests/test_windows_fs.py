@@ -71,6 +71,89 @@ def test_enumeration_reports_attributes_and_reparse_tags(folder: Path) -> None:
     assert entries["normal.txt"].mtime_ns == (folder / "normal.txt").stat().st_mtime_ns
 
 
+class _StrictEntry:
+    """A DirEntry whose stat/is_* calls fail unless they read only the cached find data."""
+
+    def __init__(self, entry: os.DirEntry[str]) -> None:
+        self._entry = entry
+        self.name = entry.name
+        self.path = entry.path
+
+    def stat(self, *, follow_symlinks: bool = True) -> os.stat_result:
+        assert follow_symlinks is False, f"stat() followed {self.name!r}"
+        return self._entry.stat(follow_symlinks=False)
+
+    def is_dir(self, *, follow_symlinks: bool = True) -> bool:
+        assert follow_symlinks is False, f"is_dir() followed {self.name!r}"
+        return self._entry.is_dir(follow_symlinks=False)
+
+    def is_file(self, *, follow_symlinks: bool = True) -> bool:
+        assert follow_symlinks is False, f"is_file() followed {self.name!r}"
+        return self._entry.is_file(follow_symlinks=False)
+
+    def is_symlink(self) -> bool:
+        raise AssertionError(f"is_symlink() on {self.name!r}")
+
+    def is_junction(self) -> bool:
+        raise AssertionError(f"is_junction() on {self.name!r}")
+
+    def inode(self) -> int:
+        raise AssertionError(f"inode() on {self.name!r}: it opens the entry on Windows")
+
+
+class _StrictScandir:
+    def __init__(self, inner) -> None:  # type: ignore[no-untyped-def]
+        self._inner = inner
+
+    def __enter__(self) -> _StrictScandir:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._inner.close()
+
+    def __iter__(self) -> _StrictScandir:
+        return self
+
+    def __next__(self) -> _StrictEntry:
+        return _StrictEntry(next(self._inner))
+
+    def close(self) -> None:
+        self._inner.close()
+
+
+def test_listing_opens_and_stats_no_entry(folder: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Attributes come from the enumeration's find data: no per-entry stat, lstat, open or path
+    # check, so no OneDrive placeholder is recalled and no junction is followed. This catches
+    # Python-level calls only: a CreateFileW made from C code (or through ctypes) can't be
+    # intercepted this way.
+    import builtins
+    import io
+    import nt
+    import ntpath
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError(f"list() made a per-entry call: {args!r}")
+
+    real_scandir = os.scandir
+    monkeypatch.setattr(os, "scandir", lambda path: _StrictScandir(real_scandir(path)))
+    for module, name in [(os, "stat"), (os, "lstat"), (os, "open"), (builtins, "open"), (io, "open")]:
+        monkeypatch.setattr(module, name, forbidden)
+    # os.path binds the nt helpers at import, so patch both the helpers and the os.path names.
+    for name in ["_path_isdir", "_path_isfile", "_path_exists", "_path_lexists", "_path_islink", "_path_isjunction"]:
+        if hasattr(nt, name):
+            monkeypatch.setattr(nt, name, forbidden)
+    for name in ["isdir", "isfile", "exists", "lexists", "islink", "isjunction"]:
+        if hasattr(ntpath, name):
+            monkeypatch.setattr(ntpath, name, forbidden)
+    try:
+        entries = list(WindowsFileSystem().list(str(folder)))
+    finally:
+        monkeypatch.undo()  # before pytest itself needs os.stat to report a failure
+    assert {e.name for e in entries} == {
+        "normal.txt", HEBREW_DOC, MIXED_PDF, "Photos", "hidden.txt", "system.dat", "~$x.docx", "junction",
+    }
+
+
 def test_list_folder_keeps_only_candidates_with_hebrew_names_intact(folder: Path) -> None:
     listing = list_folder(WindowsFileSystem(), str(folder), CancelToken())
     assert listing["path"] == str(folder)

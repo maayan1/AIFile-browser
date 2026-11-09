@@ -177,6 +177,66 @@ describe("App", () => {
     expect(lastRequest("listFolder").path).toBe(DOCS);
   });
 
+  it("shows the permission message for a folder it can't open, and Back, Up and the breadcrumb still work", async () => {
+    await readyApp();
+    reply(listingOf(lastRequest("listFolder").id, DOCS, [{ kind: "knownFolder", code: "documents", path: DOCS }]));
+    await flush();
+    const main = within(screen.getByRole("main"));
+    const button = (name: string) => screen.getByRole<HTMLButtonElement>("button", { name });
+    const photos = `${DOCS}\\Photos`;
+    const place = {
+      path: photos,
+      parent: DOCS,
+      segments: [
+        { kind: "knownFolder", code: "documents", path: DOCS },
+        { kind: "folder", name: "Photos", path: photos },
+      ],
+    };
+    const deny = () => reply({ id: lastRequest("listFolder").id, type: "error", code: "accessDenied", data: place });
+
+    // The engine can't list the folder: the list says so in plain words, and nothing else.
+    act(() => fireEvent.doubleClick(main.getByText("Photos")));
+    expect(lastRequest("listFolder").path).toBe(photos);
+    deny();
+    await flush();
+    expect(main.getByText(t("browse.accessDenied"))).toBeTruthy();
+    expect(main.queryAllByRole("row")).toHaveLength(0);
+    expect(screen.queryByText(/accessDenied/)).toBeNull();
+    const crumbs = () => within(screen.getByRole("group", { name: t("breadcrumb.label") }));
+    expect(crumbs().getByRole("button", { name: "Photos" }).getAttribute("aria-current")).toBe("location");
+    expect(button(t("topBar.up")).disabled).toBe(false);
+
+    // Back lists the previous folder.
+    expect(button(t("topBar.back")).disabled).toBe(false);
+    act(() => fireEvent.click(button(t("topBar.back"))));
+    expect(lastRequest("listFolder").path).toBe(DOCS);
+    reply(listingOf(lastRequest("listFolder").id, DOCS, [{ kind: "knownFolder", code: "documents", path: DOCS }]));
+    await flush();
+    expect(main.getByText("Photos")).toBeTruthy();
+    expect(main.queryByText(t("browse.accessDenied"))).toBeNull();
+
+    // Forward to the denied folder again; Up and the breadcrumb each leave it.
+    act(() => fireEvent.click(button(t("topBar.forward"))));
+    expect(lastRequest("listFolder").path).toBe(photos);
+    deny();
+    await flush();
+    act(() => fireEvent.click(button(t("topBar.up"))));
+    expect(lastRequest("listFolder").path).toBe(DOCS);
+    reply(listingOf(lastRequest("listFolder").id, DOCS, [{ kind: "knownFolder", code: "documents", path: DOCS }]));
+    await flush();
+    expect(main.getByText("Photos")).toBeTruthy();
+    act(() => fireEvent.click(button(t("topBar.back"))));
+    expect(lastRequest("listFolder").path).toBe(photos);
+    deny();
+    await flush();
+    act(() => fireEvent.click(crumbs().getByRole("button", { name: "Documents" })));
+    expect(lastRequest("listFolder").path).toBe(DOCS);
+    reply(listingOf(lastRequest("listFolder").id, DOCS, [{ kind: "knownFolder", code: "documents", path: DOCS }]));
+    await flush();
+    expect(main.getByText("Photos")).toBeTruthy();
+    expect(main.queryByText(t("browse.accessDenied"))).toBeNull();
+  });
+
   it("opens a file through the shell and keeps the folder", async () => {
     await readyApp();
     reply(listingOf(lastRequest("listFolder").id, DOCS, [{ kind: "knownFolder", code: "documents", path: DOCS }]));

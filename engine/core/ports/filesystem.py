@@ -1,6 +1,10 @@
 """FileSystemPort: the core's only way to see files (AD-1, AD-8).
 
 Entries come from directory enumeration alone; an adapter never opens a file to fill them in.
+
+The port lists one folder at a time. AD-4's one `walk()` lives in the core (`core/walk.py`), built
+on `list()`, so the rules for which folders a walk descends into (`is_candidate`, junction and
+symlink loops, OneDrive's online-only folders) stay in the core rather than in each adapter.
 """
 
 from __future__ import annotations
@@ -95,7 +99,8 @@ class FileSystemPort(Protocol):
         ...
 
     def list(self, path: str) -> Iterable[FsEntry]:
-        """The entries of one folder, in no particular order, read lazily.
+        """The entries of one folder, in no particular order, read lazily, from enumeration only
+        (no per-entry stat or open). Walking a tree is the core's `walk()`, on top of this.
 
         Raises FileNotFoundError or NotADirectoryError when the folder is missing, and
         PermissionError when it can't be read.

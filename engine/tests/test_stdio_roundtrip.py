@@ -307,6 +307,14 @@ def test_denied_folder_is_access_denied(engine: Engine, tmp_path: Path) -> None:
         assert reply["data"]["path"] == str(denied)
         assert reply["data"]["parent"] == str(tmp_path)
         assert reply["data"]["segments"][-1] == {"kind": "folder", "name": "denied", "path": str(denied)}
+        # A code and the folder's place only: no OS message, error number or traceback.
+        assert set(reply) == {"id", "type", "code", "data"}
+        assert set(reply["data"]) == {"path", "parent", "segments"}
+        text = json.dumps(reply, ensure_ascii=False)
+        for leak in ["Traceback", "Error", "Access is denied", "WinError", "errno", "[Errno"]:
+            assert leak not in text, leak
+        engine.send({"id": "l5b", "type": "ping"})
+        assert engine.read() == {"id": "l5b", "type": "pong"}
     finally:
         subprocess.run(["icacls", str(denied), "/remove:d", "*S-1-1-0"], check=True, capture_output=True)
 
