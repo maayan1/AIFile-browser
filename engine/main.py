@@ -15,7 +15,16 @@ import threading
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from adapters.stdio_transport import PROTOCOL_VERSION, StdioTransport
+from adapters.stdio_transport import PROTOCOL_VERSION, ChannelHandler, Message, StdioTransport, error
+from adapters.windows_fs import WindowsFileSystem
+from core.browse import list_folder
+from core.cancel import CancelToken
+from core.ports.filesystem import FileSystemPort
+
+FOLDER_NOT_FOUND = "folderNotFound"
+ACCESS_DENIED = "accessDenied"
+
+log = logging.getLogger("fb2.main")
 
 LOG_MAX_BYTES = 1_000_000
 LOG_BACKUP_COUNT = 3
@@ -47,9 +56,30 @@ def setup_logging() -> None:
     threading.excepthook = lambda args: log_uncaught(args.exc_type, args.exc_value, args.exc_traceback)
 
 
+def list_folder_handler(fs: FileSystemPort) -> ChannelHandler:
+    """The `listFolder` channel handler: a folderListing, or the folder error as a protocol code."""
+
+    def handle(request: Message, token: CancelToken) -> Message:
+        try:
+            listing = list_folder(fs, request.get("path"), token)
+        except PermissionError:
+            log.info("listFolder: access denied")
+            return error(request["id"], ACCESS_DENIED)
+        except (FileNotFoundError, NotADirectoryError):
+            return error(request["id"], FOLDER_NOT_FOUND)
+        except OSError as exc:
+            # Any other reason the folder can't be read (bad name, drive not ready, ...).
+            log.info("listFolder: folder unreadable (winerror %s)", getattr(exc, "winerror", None))
+            return error(request["id"], FOLDER_NOT_FOUND)
+        return {"id": request["id"], "type": "folderListing", **listing}
+
+    return handle
+
+
 def main() -> int:
     setup_logging()
     transport = StdioTransport.open(validate=os.environ.get("FB2_VALIDATE_PROTOCOL") == "1")
+    transport.register_channel("listFolder", "listFolder", list_folder_handler(WindowsFileSystem()))
     transport.send({"id": None, "type": "ready", "protocolVersion": PROTOCOL_VERSION})
     try:
         transport.serve_forever()

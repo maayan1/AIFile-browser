@@ -180,3 +180,21 @@ Code review pass 1 (2026-11-03). Layers: Blind Hunter (B), Edge Case Hunter (E),
 | B12 | `FilterChip` is hand-rolled, not `Button`, and its `label` prop takes a key | low | No named harm today; Epic 6 rebuilds the chip as a Popover/DropdownMenu trigger. | reject |
 | E-claim2 | Under RTL the gear, not the Search Bar, is leftmost | false | The governing rule is "mirrors with no other change". The LTR order (search, then gear) mirrored is exactly what renders, and DESIGN.md's LTR description also has the gear after search. | reject |
 | E3 | The default 1280×800 (and the 960×600 minimum) overflows small work areas, for example 1366×768 at 125% | medium | Real for common laptops. 1.1's 1200×800 overflowed too. A fix needs a startup clamp to the monitor's work area, which belongs with UX-DR24's remembered window size and position (Story 4.1). | defer D1 |
+
+## Code Review — 2026-11-09 (Stories 1.1–1.3 together, `1397979..5772474`)
+
+### Review Findings
+
+- [x] [Review][Decision] (resolved 2026-11-09, option 1b: Claude launches `tauri dev` and screenshots each manual check for the user to judge) Acceptance criteria that can only be checked by eye were never checked — ACs 1–4 (light/dark colors and sizes, `dir="rtl"`, the focus ring, the banner under `tauri dev`) are all manual, and Implementation Notes say "Not seen on screen yet", yet the spec says `status: 'done'`. See also Stories 1.1 and 1.2.
+  - Verified 2026-11-09 under `tauri dev` (125% scaling, default 1280×800 viewport): light and dark both show all six areas (nav 240px, preview 320px, status bar 28px) with the DESIGN.md surfaces. `dir="rtl"` puts nav on the right, preview on the left and the Search Bar at the left, and back/forward are mirrored (Tailwind v4 `scale`). Tab focus thickens the Search Bar border to 2px primary; it is the only focusable control while the buttons are disabled. The banner spans the window under the filter bar in `destructive`. Dragging the window corner stops at a 960×600 viewport.
+- [x] [Review][Defer] `--muted-foreground` on `--surface-pane` is about 4.3:1, below WCAG AA's 4.5:1, for "Select a file to preview" [app/src/index.css] — deferred: already noted in Implementation Notes for Story 7.3 (accessibility pass).
+
+**Rejected**
+- reject (spec) — Under RTL the gear, not the Search Bar, is leftmost. AC 2's wording conflicts with "no other change". The earlier triage (E-claim2) read it as mirroring, and changing it is a spec edit.
+- reject (triaged) — The Search Bar gets about 517 px rather than 640 at the 960 px minimum, because of the 1:2 split. This is a documented design interpretation (B9), and the layout is revisited when breadcrumbs land in 1.5.
+- false — The banner isn't full width. It spans the window inside the same 12 px gutter as the top and filter bars (B2).
+- false — The search box can be typed in. Decisions say "a styled input with its placeholder that does nothing on Enter", so that is intended.
+- low — The window title "File Browser 2" is hard-coded in `tauri.conf.json` and `index.html`. It is the product name, and setting it at runtime from the catalog adds code. Revisit with Hebrew in Epic 7.
+- low — The font token is `--text-search`, not `search-input`, and `--text-title` doesn't carry the Display font family. Nothing uses either token yet.
+- false — "Only logical CSS properties" is violated by `border-b`/`border-t`/`w-*`/`h-*`. Block-axis and size properties don't change under RTL, and the intent (mirroring) holds.
+- low — The RTL style guard misses `translate-x-*`, `skew-x-*` and unflagged directional icons. Nothing uses them today, and the fix widens a test heuristic.

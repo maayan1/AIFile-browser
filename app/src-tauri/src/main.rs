@@ -6,6 +6,7 @@ compile_error!("File Browser 2 targets Windows 11 only: the engine supervisor us
 
 mod engine;
 mod job;
+mod shell_log;
 
 use std::sync::Arc;
 
@@ -28,6 +29,14 @@ fn main() {
             engine::engine_state
         ])
         .setup(|app| {
+            // The shell log comes first so the supervisor's first diagnostics are kept. Release
+            // builds have no console, so this file is where they end up. Without it the app
+            // still runs.
+            let log_dir = shell_log::log_dir();
+            match shell_log::init(&log_dir) {
+                Ok(()) => shell_log::write(&format!("shell {} started", env!("CARGO_PKG_VERSION"))),
+                Err(err) => eprintln!("shell log unavailable in {}: {err}", log_dir.display()),
+            }
             // The supervisor owns the engine from here on: spawn, liveness, restart, kill (AD-14).
             // Without uv the window still opens; the spawn failures are logged and the banner shows.
             let sink = Arc::new(engine::TauriSink(app.handle().clone()));

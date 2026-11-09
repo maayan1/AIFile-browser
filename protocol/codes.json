@@ -1,6 +1,8 @@
 {
   "errorCodes": [
     "unknownRequest",
-    "invalidRequest"
+    "invalidRequest",
+    "folderNotFound",
+    "accessDenied"
   ]
 }

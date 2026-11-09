@@ -126,8 +126,10 @@ describe("catalog", () => {
     expect(catalog["engine.restarting"]).toBe("The search stopped working. Trying again…");
   });
 
-  it.each(Object.entries(catalog))("%s is plain text", (key, value) => {
+  it.each(Object.entries(catalog))("%s is plain text", (key, raw) => {
     expect(key).toMatch(/^[a-z][a-zA-Z0-9]*\.[a-z][a-zA-Z0-9]*$/); // context.code
+    // `{name}` placeholders are filled by t(); the words around them are what the user reads.
+    const value = raw.replace(/\{[a-z]+\}/g, "");
     expect(value.trim()).not.toBe("");
     expect(value).not.toMatch(/[{}<>[\]`$\\|_=]/); // no placeholders, markup or code punctuation
     expect(value).not.toMatch(/\b[a-z]+[A-Z]\w*/); // no camelCase identifiers or codes

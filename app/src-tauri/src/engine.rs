@@ -11,9 +11,12 @@
 //! cached `ready`, reports `restarting`, kills the whole job, waits until the job is empty and
 //! respawns after an exponential backoff. After `max_failures` consecutive failures it reports
 //! `stopped` and spawns no more. The release sidecar (`externalBin`) arrives in Story 3.9.
+//!
+//! Every diagnostic, and every line the engine writes to stderr, goes to the shell log
+//! ([`crate::shell_log`]), because release builds have no console.
 
 use std::io::{self, BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
@@ -22,6 +25,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::job::Job;
+use crate::shell_log;
 
 pub const ENGINE_MESSAGE_EVENT: &str = "engine-message";
 pub const ENGINE_STATE_EVENT: &str = "engine-state";
@@ -208,7 +212,7 @@ impl Worker {
                 Outcome::Failed => {
                     self.failures += 1;
                     if self.failures >= self.timings.max_failures {
-                        eprintln!("engine: {} failures in a row, giving up", self.failures);
+                        shell_log::write(&format!("engine: {} failures in a row, giving up", self.failures));
                         return self.stay_stopped();
                     }
                     self.set_state(EngineStatus::Restarting);
@@ -265,14 +269,14 @@ impl Worker {
         let job = match Job::new() {
             Ok(job) => job,
             Err(err) => {
-                eprintln!("engine: could not create a job object: {err}");
+                shell_log::write(&format!("engine: could not create a job object: {err}"));
                 return Outcome::Failed;
             }
         };
         let mut child = match (self.factory)().and_then(spawn) {
             Ok(child) => child,
             Err(err) => {
-                eprintln!("engine: could not start: {err}");
+                shell_log::write(&format!("engine: could not start: {err}"));
                 return Outcome::Failed;
             }
         };
@@ -280,7 +284,7 @@ impl Worker {
         // that instant would escape. `uv` takes milliseconds before its first child, so this
         // does not happen in practice.
         if let Err(err) = job.assign(&child) {
-            eprintln!("engine: could not put the engine in its job: {err}");
+            shell_log::write(&format!("engine: could not put the engine in its job: {err}"));
             let _ = child.kill();
             let _ = child.wait();
             return Outcome::Failed;
@@ -288,6 +292,12 @@ impl Worker {
 
         let stdout = child.stdout.take().expect("stdout is piped");
         let stdin = child.stdin.take().expect("stdin is piped");
+        let stderr = child.stderr.take().expect("stderr is piped");
+        // If this thread can't start, dropping `stderr` closes the pipe, so the engine never
+        // blocks on a full stderr buffer.
+        let _ = thread::Builder::new()
+            .name(format!("engine-stderr-{generation}"))
+            .spawn(move || copy_stderr(stderr));
         let lines = self.tx.clone();
         let reader = thread::Builder::new()
             .name(format!("engine-reader-{generation}"))
@@ -300,7 +310,7 @@ impl Worker {
             *lock(&self.shared.writer) = Some(writer_tx);
             self.watch(generation, &mut child)
         } else {
-            eprintln!("engine: could not start the engine's pipe threads");
+            shell_log::write("engine: could not start the engine's pipe threads");
             Outcome::Failed
         };
 
@@ -328,7 +338,7 @@ impl Worker {
         match outcome {
             Outcome::Stop => Outcome::Stop,
             _ if !emptied => {
-                eprintln!("engine: the old engine's processes did not exit; not starting another");
+                shell_log::write("engine: the old engine's processes did not exit; not starting another");
                 Outcome::Stuck
             }
             other => other,
@@ -351,7 +361,7 @@ impl Worker {
             match ready_at {
                 None => {
                     if now >= ready_deadline {
-                        eprintln!("engine: no ready within {:?}", t.ready_timeout);
+                        shell_log::write(&format!("engine: no ready within {:?}", t.ready_timeout));
                         return Outcome::Failed;
                     }
                     wake = wake.min(ready_deadline);
@@ -367,7 +377,7 @@ impl Worker {
                     }
                     match &pending_ping {
                         Some((_, deadline)) if now >= *deadline => {
-                            eprintln!("engine: no pong within {:?}", t.ping_timeout);
+                            shell_log::write(&format!("engine: no pong within {:?}", t.ping_timeout));
                             return Outcome::Failed;
                         }
                         Some((_, deadline)) => wake = wake.min(*deadline),
@@ -389,7 +399,7 @@ impl Worker {
             match self.rx.recv_timeout(wake.saturating_duration_since(Instant::now())) {
                 Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => return Outcome::Stop,
                 Ok(Msg::Eof(g)) if g == generation => {
-                    eprintln!("engine: stdout closed");
+                    shell_log::write("engine: stdout closed");
                     return Outcome::Failed;
                 }
                 Ok(Msg::Line(g, line)) if g == generation => {
@@ -415,7 +425,7 @@ impl Worker {
                 Ok(_) => {}
                 Err(RecvTimeoutError::Timeout) => {
                     if let Ok(Some(status)) = child.try_wait() {
-                        eprintln!("engine: exited ({status})");
+                        shell_log::write(&format!("engine: exited ({status})"));
                         return Outcome::Failed;
                     }
                 }
@@ -425,7 +435,7 @@ impl Worker {
 }
 
 fn spawn(mut cmd: Command) -> io::Result<Child> {
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit());
+    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -490,6 +500,26 @@ fn read_lines(generation: u64, stdout: ChildStdout, tx: Sender<Msg>) {
         }
     }
     let _ = tx.send(Msg::Eof(generation));
+}
+
+/// Copies the engine's stderr into the shell log, line by line, until the engine's pipe closes.
+/// This catches what the engine can't log itself, such as a traceback before its log is open.
+fn copy_stderr(stderr: ChildStderr) {
+    let mut reader = BufReader::new(stderr);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {
+                let line = String::from_utf8_lossy(&buf);
+                let line = line.trim_end();
+                if !line.is_empty() {
+                    shell_log::write(&format!("engine stderr: {line}"));
+                }
+            }
+        }
+    }
 }
 
 /// Writes queued lines to the engine's stdin. A blocked write (hung engine) blocks only this
@@ -770,6 +800,28 @@ mod tests {
     }
 
     #[test]
+    fn backoff_doubles_after_each_consecutive_failure() {
+        let spawned_at = Arc::new(Mutex::new(Vec::<Instant>::new()));
+        let times = spawned_at.clone();
+        let factory: CommandFactory = Box::new(move || {
+            lock(&times).push(Instant::now());
+            Ok(Command::new("fb2-no-such-program-exists"))
+        });
+        let base = Duration::from_millis(100);
+        let (sup, _rec) = start(factory, Timings { backoff_base: base, max_failures: 4, ..fast() });
+        wait_for("stopped", Duration::from_secs(10), || sup.state() == Stopped);
+        let times = lock(&spawned_at).clone();
+        assert_eq!(times.len(), 4);
+        // Respawn n (1-based) waits base × 2^(n-1): at least 100, 200 and 400 ms apart.
+        for (n, pair) in times.windows(2).enumerate() {
+            let gap = pair[1] - pair[0];
+            let min = base * (1 << n);
+            assert!(gap >= min, "gap before respawn {} was {gap:?}, expected at least {min:?}", n + 1);
+        }
+        sup.stop();
+    }
+
+    #[test]
     fn running_for_healthy_after_resets_the_failure_count() {
         // Without the reset, the second failure would already reach max_failures = 2.
         let (factory, spawns) = sequence(modes(&[
@@ -882,13 +934,34 @@ mod tests {
         let _ = std::fs::remove_file(&pids);
     }
 
+    /// The shell's half of the IPC contract in protocol/ipc.json; `transport.test.ts` pins the
+    /// UI's half to the same file. Command names are function names, so they are checked in the
+    /// source: each must be a `#[tauri::command]` here and registered in `main.rs`.
     #[test]
-    fn state_names_and_event_name_are_what_the_ui_expects() {
-        assert_eq!(Starting.as_str(), "starting");
-        assert_eq!(Running.as_str(), "running");
-        assert_eq!(Restarting.as_str(), "restarting");
-        assert_eq!(Stopped.as_str(), "stopped");
-        assert_eq!(ENGINE_STATE_EVENT, "engine-state");
+    fn ipc_names_match_protocol_ipc_json() {
+        let ipc: serde_json::Value =
+            serde_json::from_str(include_str!("../../../protocol/ipc.json")).expect("ipc.json is JSON");
+        let text = |pointer: &str| ipc.pointer(pointer).and_then(|v| v.as_str()).expect(pointer).to_string();
+
+        assert_eq!(ENGINE_MESSAGE_EVENT, text("/events/message"));
+        assert_eq!(ENGINE_STATE_EVENT, text("/events/state"));
+        let states: Vec<&str> = [Starting, Running, Restarting, Stopped].iter().map(|s| s.as_str()).collect();
+        let expected: Vec<&str> = ipc["states"].as_array().expect("states").iter().filter_map(|s| s.as_str()).collect();
+        assert_eq!(states, expected);
+
+        let source = include_str!("engine.rs");
+        let main = include_str!("main.rs");
+        for key in ["send", "ready", "state"] {
+            let name = text(&format!("/commands/{key}"));
+            let signature = format!("#[tauri::command]\npub fn {name}(");
+            assert!(source.contains(&signature), "no #[tauri::command] fn {name} in engine.rs");
+            assert!(main.contains(&format!("engine::{name}")), "{name} is not registered in main.rs");
+        }
+        let send = text("/commands/send");
+        let after = source.split(&format!("pub fn {send}(")).nth(1).expect("send command");
+        let params = &after[..after.find(')').expect("parameter list")];
+        let argument = text("/sendArgument");
+        assert!(params.contains(&format!("{argument}: String")), "{send} has no `{argument}: String` parameter");
     }
 
     #[test]

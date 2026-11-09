@@ -143,3 +143,23 @@ Pass 1 (2026-11-02). Layers: Blind Hunter (B), Edge Case Hunter (E), Verificatio
 | VG1 | Rust `is_ready` / `last_ready` cache has no automated test | gap | Pre-verified: no `#[test]` in `app/src-tauri/src`; AC 1 could regress with every check green. | patch P8 |
 | VG2 | Lone-surrogate rejection and writer encode fallback untested | gap | Pre-verified: no surrogate case in `test_stdio_roundtrip.py`. | patch P9 |
 | VG3 | `request()` rejecting on `send` failure untested | gap | Pre-verified: the fake `send` always resolves. | patch P10 |
+
+## Code Review — 2026-11-09 (Stories 1.1–1.3 together, `1397979..5772474`)
+
+### Review Findings
+
+- [x] [Review][Decision] (resolved 2026-11-09, option 1b: Claude launches `tauri dev` and screenshots each manual check for the user to judge) Acceptance criteria that can only be checked by eye were never checked — The spec says `status: 'done'`, but Implementation Notes say "Whether the first window visibly comes to the front was not confirmed by eye" (second-launch focus). The same is true for Story 1.2 AC 1 and Story 1.3 ACs 1–4. Someone has to run `tauri dev` and look before the story is really done.
+  - Verified 2026-11-09 under `tauri dev`: with the window minimized, a second launch exited by itself, and the existing window was restored and became the foreground window (one `file-browser-2` process).
+- [x] [Review][Patch] `serde_json` is not pinned to an exact version like the other crates (`"1"`, lockfile has 1.0.154) [app/src-tauri/Cargo.toml:14]
+
+**Rejected**
+- low — `_parse` drops a valid string `id` when the line fails later checks (lone surrogate, bad `type`), so the error comes back as `id: null` and the request is never settled. Unreachable today: the client always sends a valid `type`, and `JSON.stringify` of normal input has no lone surrogates. The fix adds a branch. A per-request timeout is ruled out by Story 1.2's Never rules.
+- low — With the validator off, `handle_ping` echoes a non-string `text`. The only sender (the UI) always sends a string.
+- low — `setup_logging` raises before `ready` if the log folder can't be written, so the engine never starts. Only an unwritable `%LOCALAPPDATA%` triggers it, which is very rare, and the fallback adds a branch.
+- false — `gen-protocol-types.mjs` could pick a helper type or duplicate a title. Every current schema compiles to exactly one exported type with a unique title.
+- low — `postinstall` fails with `npm install --omit=dev`. Nobody installs this desktop dev repo without dev dependencies.
+- low — `tsconfig.json` includes only `src`, so `vite.config.ts` and the generator script aren't type-checked. The harm is limited to dev-time config errors.
+- low — The AD-1 import guard misses `builtins.open()` and attribute calls. `core/` is empty today, and the fix widens a test heuristic.
+- false — `ProtocolClient.stop()` leaves pending requests unsettled. It is only called on unmount, and the `active` flags in App and the session ignore late results (already rejected as B3b).
+- false — `void session.start()` swallows startup failures. The webview still logs the rejection as "Uncaught (in promise)", and if Tauri IPC is broken there is nothing the UI could show.
+- low — If one `Promise.all` subscription rejects in `start()`, the other listener leaks. That needs broken Tauri IPC, and the fix (`allSettled` plus cleanup) adds complexity.

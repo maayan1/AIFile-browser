@@ -1,6 +1,6 @@
 // Generates src/protocol/generated.ts from protocol/schemas/*.schema.json.
 // Runs from predev / prebuild / pretest; the output is never committed.
-import { readdir, mkdir, writeFile } from "node:fs/promises";
+import { readdir, readFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { compileFromFile } from "json-schema-to-typescript";
@@ -21,9 +21,12 @@ for (const file of files) {
     style: { singleQuote: false },
   });
   parts.push(ts.trim());
-  const match = ts.match(/export (?:interface|type) (\w+)/);
-  if (!match) throw new Error(`no exported type generated for ${file}`);
-  typeNames.push(match[1]);
+  // The message type is the one named by the schema's title; definitions add helper types.
+  const { title } = JSON.parse(await readFile(path.join(schemaDir, file), "utf8"));
+  if (typeof title !== "string" || !ts.includes(`export interface ${title} `)) {
+    throw new Error(`no exported type named by the title of ${file}`);
+  }
+  typeNames.push(title);
 }
 
 const banner =

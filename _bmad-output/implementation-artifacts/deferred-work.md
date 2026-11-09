@@ -16,3 +16,24 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-3-main-window-layout-and-visual-style.md`
   summary: Clamp the first-launch window size and position to the monitor's work area, because the default 1280×800 (and even the 960×600 minimum height) can exceed small screens, such as 1366×768 at 125% scaling.
   evidence: At 1366×768 and 125% the logical work area is about 1093×576, so the window opens partly off-screen. The 1.1 default of 1200×800 overflowed too. It belongs with UX-DR24's remembered window size and position (Story 4.1). Review finding E3.
+
+## Deferred from: code review of stories 1.1–1.3 (2026-11-09)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-3-main-window-layout-and-visual-style.md`
+  summary: Raise the contrast of `--muted-foreground` on `--surface-pane` to WCAG AA (4.5:1). It is about 4.3:1 today, used for "Select a file to preview". Target Story 7.3.
+  evidence: `app/src/index.css` keeps shadcn neutral `--muted-foreground: oklch(0.556 0 0)` on `--surface-pane: #f3f3f3`. `panes.tsx` uses it for the empty Preview Panel text.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-2-recover-when-the-engine-stops.md`
+  summary: Re-confirmed by this review: the supervisor's `Stuck` path is untested. It is already recorded above (fault-injection seam around `Job`), so no new work item.
+  evidence: Verification Gap reviewer: mapping `Stuck` to `Failed` keeps every suite green.
+
+## Deferred from: Story 1.4 build (2026-11-09)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-4-browse-a-folder.md`
+  summary: Split an oversized `folderListing` into several replies on the same id, with a line limit recorded in `protocol/` (AD-2).
+  evidence: Story 1.4 sends one reply per listing, and `ProtocolClient.request()` resolves on the first message with an id. Multi-message replies arrive with search (Epic 2: searchParsed, nameMatches, …), which is the natural time to add both together.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-4-browse-a-folder.md`
+  summary: Make a `listFolder` enumeration abandonable, so a blocking `scandir` (unreachable share, drive not ready) can't hold the channel thread while newer listings queue behind it (latest wins, AD-10).
+  evidence: Review D1 (ECH2/BH1). `list_folder` checks its token only between entries, and the channel has one worker. Not reachable in 1.4, which lists only Documents; real once Story 1.5 adds typed and navigated paths. Medium from then on.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-4-browse-a-folder.md`
+  summary: For Story 1.5: normalize incoming paths in the engine (AD-9), re-list the last folder (not Documents) after an engine restart, and choose a code other than `folderNotFound` for a drive that isn't ready or an unreachable share.
+  evidence: Review D2 (BH9/BH2/BH4). `folderListing.path` echoes the request string, `BrowseSession` lists Documents on every `ready`, and every other `OSError` maps to `folderNotFound`. None is reachable in 1.4, where no request carries a path.
