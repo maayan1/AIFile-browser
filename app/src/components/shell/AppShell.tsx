@@ -1,4 +1,5 @@
 import type { BrowseActions, BrowseSnapshot } from "@/browse/session";
+import { useBrowseShortcuts } from "@/browse/shortcuts";
 import { EngineBanner } from "@/components/EngineBanner";
 import { FilterBar } from "./FilterBar";
 import { MainArea, NavPane, PreviewPanel, StatusBar } from "./panes";
@@ -17,6 +18,8 @@ export function AppShell({
   /** The browse session's navigation; without it every navigation control is inert. */
   actions?: BrowseActions;
 }) {
+  // Alt+←/→/↑ and F5 from anywhere in the window.
+  useBrowseShortcuts(actions);
   return (
     <div className="flex h-full flex-col">
       <TopBar browse={browse} actions={actions} />

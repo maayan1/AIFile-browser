@@ -57,6 +57,7 @@ function fakeActions(): BrowseActions {
     back: vi.fn(),
     forward: vi.fn(),
     up: vi.fn(),
+    reload: vi.fn(),
     clearPathError: vi.fn(),
   };
 }

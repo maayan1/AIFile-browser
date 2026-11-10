@@ -67,3 +67,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-7-handle-folders-i-cant-open.md`
   summary: Decide whether `walk()` should also skip directories with FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS (partly virtualized contents, which enumerating may fetch), not only RECALL_ON_OPEN ones.
   evidence: Review of Story 1.7 (edge-case-hunter), unverified (medium if true). Skipping them could also stop name search in ordinary OneDrive folders if those carry the bit. Settle on a PC with OneDrive Files On-Demand by reading the attributes of populated and online-only folders, before Epic 2's name search walks Documents.
+
+## Deferred from: Story 1.8 review (2026-11-10)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-8-browse-with-the-keyboard-alone.md`
+  summary: Make Back/Forward step from a pending target, so pressing Alt+← (or the Back button) twice before the first reply goes back two folders, not one.
+  evidence: `BrowseSession.back()` reads `backStack.at(-1)`, which only changes when a reply commits. A second press re-requests the same target and cancels the first (latest wins). Predates 1.8 (Story 1.5 buttons); noticeable only on slow folders such as network shares. Review finding EC4.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-8-browse-with-the-keyboard-alone.md`
+  summary: Give the browse list grid or listbox semantics (e.g. `role="grid"`, `aria-multiselectable="false"`) so Narrator announces the arrow-key selection, then verify with Narrator. Medium; target Story 7.3.
+  evidence: Rows are `<tr aria-selected tabIndex>` in a plain `<table>`, where `aria-selected` isn't a supported state, so screen readers may not announce selection changes as ↑/↓ move it. The markup predates 1.8 (Story 1.4). Review finding BH5.

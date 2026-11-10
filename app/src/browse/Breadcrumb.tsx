@@ -56,7 +56,7 @@ export function Breadcrumb({ snapshot, actions }: { snapshot?: BrowseSnapshot; a
     if (restoreFocus && target?.isConnected) target.focus();
   }
 
-  // Alt+D from anywhere in the window (the only shortcut this story adds).
+  // Alt+D from anywhere in the window lives here; the other window shortcuts are in shortcuts.ts.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.code === EDIT_KEY) {

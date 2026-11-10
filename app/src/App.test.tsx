@@ -237,6 +237,89 @@ describe("App", () => {
     expect(main.queryByText(t("browse.accessDenied"))).toBeNull();
   });
 
+  it("browses with the keyboard alone: Enter, ↓, Alt+↑, Alt+←, Alt+→ and F5", async () => {
+    await readyApp();
+    const docsSegments = [{ kind: "knownFolder", code: "documents", path: DOCS }];
+    const photos = `${DOCS}\\Photos`;
+    const photosSegments = [...docsSegments, { kind: "folder", name: "Photos", path: photos }];
+    reply(listingOf(lastRequest("listFolder").id, DOCS, docsSegments));
+    await flush();
+    const main = within(screen.getByRole("main"));
+    const row = (name: string) => main.getByText(name).closest("tr")!;
+    const selected = () => main.getAllByRole("row").filter((r) => r.getAttribute("aria-selected") === "true");
+    const key = (init: object) => fireEvent.keyDown(document.activeElement!, init);
+    const listFolders = () => shell.sent.filter((m) => m.type === "listFolder").length;
+    const backButton = () => screen.getByRole<HTMLButtonElement>("button", { name: t("topBar.back") });
+    const forwardButton = () => screen.getByRole<HTMLButtonElement>("button", { name: t("topBar.forward") });
+
+    // The first listing takes focus on its first row, with nothing selected.
+    expect(document.activeElement).toBe(row("Photos"));
+    expect(selected()).toEqual([]);
+
+    // Enter opens the folder; its first row takes focus.
+    act(() => void key({ key: "Enter" }));
+    expect(lastRequest("listFolder").path).toBe(photos);
+    reply(listingOf(lastRequest("listFolder").id, photos, photosSegments));
+    await flush();
+    expect(document.activeElement).toBe(row("Photos"));
+    expect(selected()).toEqual([]);
+
+    // ↓ selects the focused row, ↓ again moves on.
+    act(() => void key({ key: "ArrowDown" }));
+    expect(selected()).toEqual([row("Photos")]);
+    act(() => void key({ key: "ArrowDown" }));
+    expect(selected()).toEqual([row("סיכום ישיבה 3.docx")]);
+    expect(document.activeElement).toBe(row("סיכום ישיבה 3.docx"));
+
+    // F5 lists the same folder again, keeps the selection and focus, and stops the page reload.
+    const before = listFolders();
+    let unprevented = true;
+    act(() => void (unprevented = key({ key: "F5" })));
+    expect(unprevented).toBe(false);
+    expect(listFolders()).toBe(before + 1);
+    expect(lastRequest("listFolder").path).toBe(photos);
+    reply(listingOf(lastRequest("listFolder").id, photos, photosSegments));
+    await flush();
+    expect(selected()).toEqual([row("סיכום ישיבה 3.docx")]);
+    expect(document.activeElement).toBe(row("סיכום ישיבה 3.docx"));
+    expect(backButton().disabled).toBe(false); // history unchanged
+    expect(forwardButton().disabled).toBe(true);
+
+    // Alt+↑ goes to the parent; focus on its first row, nothing selected.
+    act(() => void key({ key: "ArrowUp", altKey: true }));
+    expect(lastRequest("listFolder").path).toBe(DOCS);
+    reply(listingOf(lastRequest("listFolder").id, DOCS, docsSegments));
+    await flush();
+    expect(document.activeElement).toBe(row("Photos"));
+    expect(selected()).toEqual([]);
+
+    // Alt+← back to Photos, Alt+→ forward to Documents.
+    act(() => void key({ key: "ArrowLeft", altKey: true }));
+    expect(lastRequest("listFolder").path).toBe(photos);
+    reply(listingOf(lastRequest("listFolder").id, photos, photosSegments));
+    await flush();
+    expect(forwardButton().disabled).toBe(false);
+    act(() => void key({ key: "ArrowRight", altKey: true }));
+    expect(lastRequest("listFolder").path).toBe(DOCS);
+    reply(listingOf(lastRequest("listFolder").id, DOCS, docsSegments));
+    await flush();
+    expect(forwardButton().disabled).toBe(true);
+
+    // F5 from the open path field lists the folder again too, and stops the page reload.
+    act(() => fireEvent.keyDown(window, { key: "d", code: "KeyD", altKey: true }));
+    const field = screen.getByRole("textbox", { name: t("breadcrumb.field") });
+    expect(document.activeElement).toBe(field);
+    const count = listFolders();
+    act(() => void (unprevented = fireEvent.keyDown(field, { key: "F5" })));
+    expect(unprevented).toBe(false);
+    expect(listFolders()).toBe(count + 1);
+    expect(lastRequest("listFolder").path).toBe(DOCS);
+    reply(listingOf(lastRequest("listFolder").id, DOCS, docsSegments));
+    await flush();
+    expect(backButton().disabled).toBe(false);
+    expect(document.activeElement).toBe(field); // focus in the top bar is never taken
+  });
+
   it("opens a file through the shell and keeps the folder", async () => {
     await readyApp();
     reply(listingOf(lastRequest("listFolder").id, DOCS, [{ kind: "knownFolder", code: "documents", path: DOCS }]));

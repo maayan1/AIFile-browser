@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { t } from "@/i18n/catalog";
 import type { FolderListing } from "@/protocol/generated";
@@ -23,6 +23,14 @@ const LISTING: FolderListing = {
 
 const DOCS = LISTING.path;
 
+/** Another folder with the same names, so only the path tells the listings apart. */
+const DESKTOP: FolderListing = {
+  ...LISTING,
+  id: "u9",
+  path: "C:\\Users\\dana\\Desktop",
+  segments: [{ kind: "knownFolder", code: "desktop", path: "C:\\Users\\dana\\Desktop" }],
+};
+
 const snapshot = (change: Partial<BrowseSnapshot>): BrowseSnapshot => ({ ...INITIAL_SNAPSHOT, ...change });
 const loaded = (listing: FolderListing = LISTING): BrowseSnapshot => snapshot({ listing, location: listing.path });
 const row = (name: string) => screen.getByText(name).closest("tr")!;
@@ -41,6 +49,7 @@ function fakeActions(): { [K in keyof BrowseActions]: Mock<BrowseActions[K]> } {
     back: vi.fn<BrowseActions["back"]>(),
     forward: vi.fn<BrowseActions["forward"]>(),
     up: vi.fn<BrowseActions["up"]>(),
+    reload: vi.fn<BrowseActions["reload"]>(),
     clearPathError: vi.fn<BrowseActions["clearPathError"]>(),
   };
 }
@@ -201,8 +210,8 @@ describe("BrowseList", () => {
       fireEvent.click(row("Photos"));
       expect(selectedNames()).toEqual(["Photos"]);
 
-      // A listing without `selected` selects nothing and scrolls nothing.
-      rerender(<BrowseList snapshot={loaded({ ...LISTING, id: "u3" })} />);
+      // Another folder's listing without `selected` selects nothing and scrolls nothing.
+      rerender(<BrowseList snapshot={loaded(DESKTOP)} />);
       expect(selectedNames()).toEqual([]);
       expect(scrolled).toHaveBeenCalledTimes(1);
     } finally {
@@ -237,10 +246,202 @@ describe("BrowseList", () => {
     expect(actions.showInFolder).toHaveBeenCalledTimes(1);
   });
 
-  it("starts a new listing with nothing selected", () => {
+  it("starts a new folder's listing with nothing selected", () => {
     const { rerender } = render(<BrowseList snapshot={loaded()} />);
-    fireEvent.click(screen.getByText("Photos").closest("tr")!);
+    fireEvent.click(row("Photos"));
+    rerender(<BrowseList snapshot={loaded(DESKTOP)} />);
+    expect(selectedNames()).toEqual([]);
+  });
+
+  it("makes the first row in sort order the one tab stop while nothing is selected", () => {
+    render(<BrowseList snapshot={loaded()} />);
+    const tabStops = () => screen.getAllByRole("row").filter((r) => r.tabIndex === 0);
+    expect(tabStops()).toEqual([row("Photos")]);
+
+    // Focusing a row selects nothing.
+    act(() => row("Budget תקציב.pdf").focus());
+    expect(selectedNames()).toEqual([]);
+    expect(tabStops()).toEqual([row("Photos")]);
+
+    fireEvent.click(row("סיכום ישיבה 3.docx"));
+    expect(tabStops()).toEqual([row("סיכום ישיבה 3.docx")]);
+  });
+
+  it("moves the unselected tab stop with the sort order", () => {
+    const files = LISTING.entries.filter((entry) => entry.kind === "file");
+    render(<BrowseList snapshot={loaded({ ...LISTING, entries: files })} />);
+    const tabStops = () => screen.getAllByRole("row").filter((r) => r.tabIndex === 0);
+    expect(tabStops()).toEqual([row("Budget תקציב.pdf")]);
+    // Smallest first: the docx.
+    fireEvent.click(within(header("column.size")).getByRole("button"));
+    expect(tabStops()).toEqual([row("סיכום ישיבה 3.docx")]);
+  });
+
+  it("selects the focused row on the first ↑ or ↓", () => {
+    render(<BrowseList snapshot={loaded()} />);
+    act(() => row("Photos").focus());
+    expect(fireEvent.keyDown(row("Photos"), { key: "ArrowDown" })).toBe(false);
+    expect(selectedNames()).toEqual(["Photos"]);
+    expect(document.activeElement).toBe(row("Photos"));
+
+    act(() => row("סיכום ישיבה 3.docx").focus());
+    fireEvent.keyDown(row("סיכום ישיבה 3.docx"), { key: "ArrowUp" });
+    expect(selectedNames()).toEqual(["סיכום ישיבה 3.docx"]);
+    expect(document.activeElement).toBe(row("סיכום ישיבה 3.docx"));
+  });
+
+  it("moves the selection and focus with ↑ and ↓, in sort order, stopping at the ends", () => {
+    render(<BrowseList snapshot={loaded()} />);
+    const press = (key: string) => fireEvent.keyDown(document.activeElement!, { key });
+    const at = (name: string) => {
+      expect(selectedNames()).toEqual([name]);
+      expect(document.activeElement).toBe(row(name));
+      expect(row(name).tabIndex).toBe(0);
+    };
+
+    fireEvent.click(row("Photos"));
+    press("ArrowDown");
+    at("Budget תקציב.pdf");
+    press("ArrowDown");
+    at("סיכום ישיבה 3.docx");
+    press("ArrowDown");
+    at("סיכום ישיבה 3.docx");
+    press("ArrowUp");
+    at("Budget תקציב.pdf");
+    press("ArrowUp");
+    at("Photos");
+    press("ArrowUp");
+    at("Photos");
+
+    // Sorted by size ascending: Photos, the docx, then the pdf.
+    fireEvent.click(within(header("column.size")).getByRole("button"));
+    act(() => row("Photos").focus());
+    press("ArrowDown");
+    at("סיכום ישיבה 3.docx");
+  });
+
+  it("selects the first or last row on Home or End, and the focused row on Space", () => {
+    render(<BrowseList snapshot={loaded()} />);
+    const press = (key: string) => fireEvent.keyDown(document.activeElement!, { key });
+    fireEvent.click(row("Budget תקציב.pdf"));
+    expect(press("End")).toBe(false);
+    expect(selectedNames()).toEqual(["סיכום ישיבה 3.docx"]);
+    expect(document.activeElement).toBe(row("סיכום ישיבה 3.docx"));
+    press("Home");
+    expect(selectedNames()).toEqual(["Photos"]);
+    expect(document.activeElement).toBe(row("Photos"));
+
+    act(() => row("Budget תקציב.pdf").focus());
+    expect(selectedNames()).toEqual(["Photos"]);
+    expect(press(" ")).toBe(false);
+    expect(selectedNames()).toEqual(["Budget תקציב.pdf"]);
+  });
+
+  it("leaves arrows with a modifier alone, so Alt+↑ reaches the window", () => {
+    render(<BrowseList snapshot={loaded()} />);
+    fireEvent.click(row("Photos"));
+    for (const modifier of ["altKey", "ctrlKey", "shiftKey", "metaKey"]) {
+      expect(fireEvent.keyDown(row("Photos"), { key: "ArrowDown", [modifier]: true }), modifier).toBe(true);
+      expect(fireEvent.keyDown(row("Photos"), { key: "ArrowUp", [modifier]: true }), modifier).toBe(true);
+    }
+    expect(selectedNames()).toEqual(["Photos"]);
+    expect(document.activeElement).toBe(row("Photos"));
+  });
+
+  it("focuses a new folder's first row when focus was on the page or in the list", () => {
+    const { rerender } = render(<BrowseList snapshot={loaded()} />);
+    // The first listing, with focus on the page.
+    expect(document.activeElement).toBe(row("Photos"));
+
+    // From a row in the list.
+    fireEvent.click(row("סיכום ישיבה 3.docx"));
+    rerender(<BrowseList snapshot={loaded(DESKTOP)} />);
+    expect(document.activeElement).toBe(row("Photos"));
+    expect(selectedNames()).toEqual([]);
+
+    // A folder that can't be opened leaves focus on the page; the next listing (Back) takes it,
+    // even of the folder that was listed before.
+    rerender(<BrowseList snapshot={snapshot({ error: "accessDenied" })} />);
+    expect(document.activeElement).toBe(document.body);
+    rerender(<BrowseList snapshot={loaded({ ...DESKTOP, id: "u10" })} />);
+    expect(document.activeElement).toBe(row("Photos"));
+  });
+
+  it("never takes focus from elsewhere in the window", () => {
+    const { rerender } = render(
+      <>
+        <button type="button">elsewhere</button>
+        <BrowseList snapshot={loaded()} />
+      </>,
+    );
+    const elsewhere = screen.getByRole("button", { name: "elsewhere" });
+    act(() => elsewhere.focus());
+    rerender(
+      <>
+        <button type="button">elsewhere</button>
+        <BrowseList snapshot={loaded(DESKTOP)} />
+      </>,
+    );
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  it("keeps the selection over a re-list of the same folder while the name is listed", () => {
+    const { rerender } = render(<BrowseList snapshot={loaded()} />);
+    fireEvent.click(row("Budget תקציב.pdf"));
     rerender(<BrowseList snapshot={loaded({ ...LISTING, id: "u2" })} />);
-    expect(screen.getByText("Photos").closest("tr")!.getAttribute("aria-selected")).toBe("false");
+    expect(selectedNames()).toEqual(["Budget תקציב.pdf"]);
+    expect(document.activeElement).toBe(row("Budget תקציב.pdf"));
+    rerender(<BrowseList snapshot={loaded({ ...LISTING, id: "u3" })} />);
+    expect(selectedNames()).toEqual(["Budget תקציב.pdf"]);
+
+    // A name the listing no longer has is dropped; the first row is the tab stop again.
+    const without = LISTING.entries.filter((entry) => entry.name !== "Budget תקציב.pdf");
+    rerender(<BrowseList snapshot={loaded({ ...LISTING, id: "u4", entries: without })} />);
+    expect(selectedNames()).toEqual([]);
+    expect(row("Photos").tabIndex).toBe(0);
+  });
+
+  it("keeps a Show in folder selection over a re-list of the same folder", () => {
+    const { rerender } = render(<BrowseList snapshot={loaded({ ...LISTING, selected: "Budget תקציב.pdf" })} />);
+    rerender(<BrowseList snapshot={loaded({ ...LISTING, id: "u2" })} />);
+    expect(selectedNames()).toEqual(["Budget תקציב.pdf"]);
+    expect(screen.getAllByRole("row").filter((r) => r.tabIndex === 0)).toEqual([row("Budget תקציב.pdf")]);
+  });
+
+  it("moves focus to the tab stop when a same-folder re-list drops the focused row", () => {
+    const { rerender } = render(<BrowseList snapshot={loaded()} />);
+    fireEvent.click(row("Budget תקציב.pdf"));
+    const without = LISTING.entries.filter((entry) => entry.name !== "Budget תקציב.pdf");
+    rerender(<BrowseList snapshot={loaded({ ...LISTING, id: "u2", entries: without })} />);
+    expect(selectedNames()).toEqual([]);
+    expect(document.activeElement).toBe(row("Photos"));
+
+    // Focus on the page goes to the selected row of a same-folder re-list.
+    fireEvent.click(row("סיכום ישיבה 3.docx"));
+    act(() => (document.activeElement as HTMLElement).blur());
+    expect(document.activeElement).toBe(document.body);
+    rerender(<BrowseList snapshot={loaded({ ...LISTING, id: "u3", entries: without })} />);
+    expect(document.activeElement).toBe(row("סיכום ישיבה 3.docx"));
+  });
+
+  it("focuses the first row when Show in folder names an item that isn't listed", () => {
+    const { rerender } = render(<BrowseList snapshot={loaded()} />);
+    fireEvent.click(row("Budget תקציב.pdf"));
+    rerender(<BrowseList snapshot={loaded({ ...DESKTOP, selected: "gone.txt" })} />);
+    expect(selectedNames()).toEqual([]);
+    expect(document.activeElement).toBe(row("Photos"));
+
+    // In the same folder, with focus on the page, too.
+    act(() => (document.activeElement as HTMLElement).blur());
+    rerender(<BrowseList snapshot={loaded({ ...DESKTOP, id: "u11", selected: "gone.txt" })} />);
+    expect(document.activeElement).toBe(row("Photos"));
+  });
+
+  it("lets a same-folder listing's own selected item win over the kept selection", () => {
+    const { rerender } = render(<BrowseList snapshot={loaded()} />);
+    fireEvent.click(row("Budget תקציב.pdf"));
+    rerender(<BrowseList snapshot={loaded({ ...LISTING, id: "u2", selected: "סיכום ישיבה 3.docx" })} />);
+    expect(selectedNames()).toEqual(["סיכום ישיבה 3.docx"]);
+    expect(document.activeElement).toBe(row("סיכום ישיבה 3.docx"));
   });
 });

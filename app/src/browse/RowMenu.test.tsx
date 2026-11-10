@@ -33,6 +33,7 @@ function fakeActions(): { [K in keyof BrowseActions]: Mock<BrowseActions[K]> } {
     back: vi.fn<BrowseActions["back"]>(),
     forward: vi.fn<BrowseActions["forward"]>(),
     up: vi.fn<BrowseActions["up"]>(),
+    reload: vi.fn<BrowseActions["reload"]>(),
     clearPathError: vi.fn<BrowseActions["clearPathError"]>(),
   };
 }
@@ -99,6 +100,17 @@ describe("RowMenu", () => {
     expect(actions.showInFolder).toHaveBeenCalledWith(`${DOCS}\\Budget תקציב.pdf`);
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(row("Budget תקציב.pdf"));
+  });
+
+  it("leaves Alt+↑ and other modified arrows to the window", () => {
+    setup();
+    fireEvent.contextMenu(row("Budget תקציב.pdf"), { button: 2, clientX: 1, clientY: 1 });
+    const first = items()[0];
+    expect(document.activeElement).toBe(first);
+    expect(fireEvent.keyDown(first, { key: "ArrowUp", altKey: true })).toBe(true);
+    expect(fireEvent.keyDown(first, { key: "ArrowDown", ctrlKey: true })).toBe(true);
+    expect(fireEvent.keyDown(first, { key: "ArrowDown", metaKey: true })).toBe(true);
+    expect(document.activeElement).toBe(first);
   });
 
   it("runs Open on click: a file in its default app, a folder in the app", () => {

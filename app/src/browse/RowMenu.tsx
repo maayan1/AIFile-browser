@@ -91,7 +91,9 @@ export function RowMenu({
       // The WebView's own context menu never opens over this one.
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => {
-        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        // Plain arrows only: Alt+↑ goes up a folder from the window.
+        const plain = !event.altKey && !event.ctrlKey && !event.metaKey;
+        if ((event.key === "ArrowDown" || event.key === "ArrowUp") && plain) {
           event.preventDefault();
           move(event.key === "ArrowDown" ? 1 : -1);
         } else if (event.key === "Escape" || event.key === "Tab") {

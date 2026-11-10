@@ -52,6 +52,8 @@ export interface BrowseActions {
   back(): void;
   forward(): void;
   up(): void;
+  /** Lists the current folder again (F5), keeping history. */
+  reload(): void;
   clearPathError(): void;
 }
 
@@ -99,6 +101,8 @@ export class BrowseSession implements BrowseActions {
   private location: string | null = null;
   private backStack: string[] = [];
   private forwardStack: string[] = [];
+  /** The newest listing request while its reply is awaited; a reload sends it again. */
+  private pending: { message: FolderRequest; move: Move; typed: boolean } | null = null;
 
   constructor(
     private readonly client: ProtocolClient,
@@ -121,8 +125,16 @@ export class BrowseSession implements BrowseActions {
     return () => this.listeners.delete(listener);
   }
 
-  /** Lists the current folder again (Documents before the first one), keeping history. */
+  /**
+   * Lists the current folder again (Documents before the first one), keeping history. While a
+   * navigation is still loading, sends that request again instead, so F5 never undoes it.
+   */
   reload(): void {
+    if (this.pending) {
+      const { message, move, typed } = this.pending;
+      this.go(message, move, typed);
+      return;
+    }
     this.go(this.location === null ? { type: "listFolder" } : listFolder(this.location), "stay");
   }
 
@@ -176,11 +188,13 @@ export class BrowseSession implements BrowseActions {
   private go(message: FolderRequest, move: Move, typed = false): void {
     const request = ++this.latest;
     const path = message.path;
+    this.pending = { message, move, typed };
     this.update(move === "stay" ? { loading: true } : { loading: true, pathError: null });
     this.client
       .request(message)
       .then((reply) => {
         if (request !== this.latest) return; // a newer request owns the list
+        this.pending = null;
         if (reply.type === "folderListing") {
           this.commit(move, reply.path);
           const place = { path: reply.path, parent: reply.parent, segments: reply.segments };
@@ -202,6 +216,7 @@ export class BrowseSession implements BrowseActions {
       })
       .catch((err: unknown) => {
         if (request !== this.latest) return;
+        this.pending = null;
         // A restart ended the request: keep what is on screen, the next `ready` lists again.
         this.update({ loading: false });
         if (!(err instanceof EngineStoppedError)) console.error(`${message.type} request failed`, err);

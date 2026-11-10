@@ -36,7 +36,11 @@ import { DEFAULT_SORT, nextSort, sortEntries, type SortColumn, type SortOrder } 
 // The browse list (FR-1, FR-3): a table with a sticky, sortable header. A click selects one row
 // and focuses it; double-click or Enter opens it: a folder in the app, a file in its Windows
 // default app. A right-click, Shift+F10 or the Menu key selects the row and opens its menu (Open,
-// Show in folder); Ctrl+Shift+E runs Show in folder. ↑/↓ arrive in 1.8. After Show in folder the
+// Show in folder); Ctrl+Shift+E runs Show in folder. Focus and selection are separate, as in File
+// Explorer (UX-DR22): the list's one tab stop is the selected row, or else the first; ↑/↓ select the
+// focused row, then move the selection and focus (no wrap); Home/End go to the ends; Space selects.
+// A new folder's listing selects nothing and, when focus was on the page or in the list, focuses its
+// first row; a re-list of the same folder (F5) keeps the selection. After Show in folder the
 // listing names the item to select, and that row is scrolled into view and focused. Names are
 // isolated with <bdi dir="auto"> so a Hebrew or mixed name reads in its own direction with the
 // extension at its end, while the icon stays at the row's start. Logical properties only.
@@ -67,6 +71,10 @@ const SKELETON_ROWS = 8;
 
 /** How far a row-anchored menu starts from the row's inline start, past the icon. */
 const MENU_INSET = 24;
+
+/** The keys that move the selection within the list. */
+type MoveKey = "ArrowUp" | "ArrowDown" | "Home" | "End" | " ";
+const MOVE_KEYS: readonly string[] = ["ArrowUp", "ArrowDown", "Home", "End", " "] satisfies MoveKey[];
 
 /** An open context menu: the listing and row it belongs to, and where it goes. */
 interface OpenMenu {
@@ -99,18 +107,67 @@ export function BrowseList({ snapshot, actions }: { snapshot?: BrowseSnapshot; a
   const [selection, setSelection] = useState<{ listing: FolderListing; name: string } | null>(null);
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   const body = useRef<HTMLTableSectionElement>(null);
+  /** The path of the listing on screen before this one; null after an error. */
+  const lastPath = useRef<string | null>(null);
   const listing = snapshot?.listing ?? null;
   const rows = useMemo(() => (listing ? sortEntries(listing.entries, order) : []), [listing, order]);
-  const selected = listing && selection?.listing === listing ? selection.name : (listing?.selected ?? null);
+  const selectedIn = (where: FolderListing | null) =>
+    where && selection?.listing === where ? selection.name : (where?.selected ?? null);
 
-  // The row Show in folder named is brought into view and focused when its listing arrives. (The
-  // main area's scroll-to-top for a new folder is a layout effect, so it runs before this.)
+  // A new listing of the same folder (F5, a re-list after an engine restart) carries the selection
+  // over while that name is still listed, unless it names its own item (Show in folder). Adjusted
+  // during render, so the row never flickers unselected.
+  const [shown, setShown] = useState(listing);
+  if (shown !== listing) {
+    setShown(listing);
+    const name = selectedIn(shown);
+    if (listing && shown && name !== null && !listing.selected && shown.path === listing.path) {
+      if (listing.entries.some((entry) => entry.name === name)) setSelection({ listing, name });
+    }
+  }
+  const selected = selectedIn(listing);
+  const tabStop = rows.some((entry) => entry.name === selected) ? selected : (rows[0]?.name ?? null);
+
+  // When a listing arrives: the row Show in folder named is brought into view and focused.
+  // Otherwise focus left on the page (its row was dropped, or a menu closed) goes to the tab-stop
+  // row, and so does focus in the list for a new folder, where that is the first row. Focus
+  // anywhere else (top bar, nav pane, path field) stays. (The main area's scroll-to-top for a new
+  // folder is a layout effect, so it runs before this.)
   useEffect(() => {
-    if (!listing?.selected) return;
-    const row = body.current?.querySelector<HTMLElement>('tr[aria-selected="true"]');
-    row?.scrollIntoView?.({ block: "nearest" });
-    row?.focus({ preventScroll: true });
+    const previous = lastPath.current;
+    lastPath.current = listing?.path ?? null;
+    if (!listing) return;
+    if (listing.selected) {
+      const row = body.current?.querySelector<HTMLElement>('tr[aria-selected="true"]');
+      if (row) {
+        row.scrollIntoView?.({ block: "nearest" });
+        row.focus({ preventScroll: true });
+        return;
+      }
+    }
+    const active = document.activeElement;
+    const onPage = !active || active === document.body;
+    const inList = !onPage && body.current?.contains(active) === true;
+    if (!onPage && !(inList && listing.path !== previous)) return;
+    body.current?.querySelector<HTMLElement>('tr[tabindex="0"]')?.focus({ preventScroll: true });
   }, [listing]);
+
+  /** Selects and focuses the row a ↑/↓/Home/End/Space on `entry`'s row leads to. */
+  function move(where: FolderListing, entry: Entry, key: MoveKey) {
+    const index = rows.indexOf(entry);
+    let target = index;
+    if (key === "Home") target = 0;
+    else if (key === "End") target = rows.length - 1;
+    // The first ↑/↓ selects the focused row; after that they move the selection.
+    else if (key !== " " && entry.name === selected) {
+      target = Math.min(Math.max(index + (key === "ArrowDown" ? 1 : -1), 0), rows.length - 1);
+    }
+    setSelection({ listing: where, name: rows[target].name });
+    const row = body.current?.rows[target];
+    if (!row) return;
+    row.scrollIntoView?.({ block: "nearest" });
+    row.focus({ preventScroll: true });
+  }
 
   function open(where: FolderListing, entry: Entry) {
     const path = childPath(where.path, entry.name);
@@ -169,8 +226,10 @@ export function BrowseList({ snapshot, actions }: { snapshot?: BrowseSnapshot; a
                 key={entry.name}
                 entry={entry}
                 selected={entry.name === selected}
+                tabStop={entry.name === tabStop}
                 onSelect={() => setSelection({ listing, name: entry.name })}
                 onOpen={() => open(listing, entry)}
+                onMove={(key) => move(listing, entry, key)}
                 onShowInFolder={() => actions?.showInFolder(childPath(listing.path, entry.name))}
                 onMenu={(row, position) => {
                   setSelection({ listing, name: entry.name });
@@ -201,15 +260,20 @@ export function BrowseList({ snapshot, actions }: { snapshot?: BrowseSnapshot; a
 function Row({
   entry,
   selected,
+  tabStop,
   onSelect,
   onOpen,
+  onMove,
   onShowInFolder,
   onMenu,
 }: {
   entry: Entry;
   selected: boolean;
+  /** The list's one tab stop: the selected row, or else the first. */
+  tabStop: boolean;
   onSelect: () => void;
   onOpen: () => void;
+  onMove: (key: MoveKey) => void;
   onShowInFolder: () => void;
   onMenu: (row: HTMLElement, position: MenuPosition) => void;
 }) {
@@ -224,6 +288,10 @@ function Row({
     } else if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey && plain)) {
       event.preventDefault();
       onMenu(event.currentTarget, atRow(event.currentTarget));
+    } else if (MOVE_KEYS.includes(event.key) && plain && !event.shiftKey) {
+      // Also keeps the main area from scrolling.
+      event.preventDefault();
+      onMove(event.key as MoveKey);
     } else if (event.code === "KeyE" && event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey) {
       event.preventDefault();
       if (!event.repeat) onShowInFolder();
@@ -240,8 +308,8 @@ function Row({
   return (
     <tr
       aria-selected={selected}
-      // The selected row is the list's one tab stop (↑/↓ movement arrives in 1.8).
-      tabIndex={selected ? 0 : -1}
+      // One tab stop for the whole list; ↑/↓/Home/End move within it.
+      tabIndex={tabStop ? 0 : -1}
       onClick={(event) => {
         onSelect();
         event.currentTarget.focus();

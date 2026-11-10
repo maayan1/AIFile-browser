@@ -163,6 +163,32 @@ describe("BrowseSession", () => {
     expect(session.snapshot.location).toBe(VOL);
   });
 
+  it("sends a still-loading navigation again on reload, and its reply pushes history", async () => {
+    const { shell, session } = await inDocuments();
+    session.open(VOL);
+    const opened = shell.lastList();
+    expect(opened.path).toBe(VOL);
+
+    // F5 before the reply: the new folder is asked for again, not Documents.
+    session.reload();
+    const again = shell.lastList();
+    expect(again.id).not.toBe(opened.id);
+    expect(again.path).toBe(VOL);
+    shell.line(JSON.stringify({ id: opened.id, type: "cancelled" }));
+    shell.line(listing(again.id, VOL));
+    await flush();
+    expect(session.snapshot).toMatchObject({ location: VOL, canBack: true, canForward: false, loading: false });
+
+    // Once it has arrived, reload lists the current folder and keeps history.
+    session.reload();
+    expect(shell.lastList().path).toBe(VOL);
+    shell.line(listing(shell.lastList().id, VOL));
+    await flush();
+    expect(session.snapshot).toMatchObject({ location: VOL, canBack: true, canForward: false });
+    await openAndReply(shell, () => session.back());
+    expect(session.snapshot).toMatchObject({ location: DOCS, canBack: false });
+  });
+
   it("keeps the engine's normalized path in history, and opening the current folder pushes nothing", async () => {
     const { shell, session } = await inDocuments();
     await openAndReply(shell, () => session.open("c:\\users\\dana\\documents\\volunteering\\"), VOL);
