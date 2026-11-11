@@ -34,6 +34,45 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-4-browse-a-folder.md`
   summary: Make a `listFolder` enumeration abandonable, so a blocking `scandir` (unreachable share, drive not ready) can't hold the channel thread while newer listings queue behind it (latest wins, AD-10).
   evidence: Review D1 (ECH2/BH1). `list_folder` checks its token only between entries, and the channel has one worker. Not reachable in 1.4, which lists only Documents; real once Story 1.5 adds typed and navigated paths. Medium from then on.
+  resolved: `spec-abandonable-listing.md` (2026-11-09, commit 3253844). A request stuck past its cancel is abandoned after 250 ms, so newer listings no longer queue behind it.
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-4-browse-a-folder.md`
   summary: For Story 1.5: normalize incoming paths in the engine (AD-9), re-list the last folder (not Documents) after an engine restart, and choose a code other than `folderNotFound` for a drive that isn't ready or an unreachable share.
   evidence: Review D2 (BH9/BH2/BH4). `folderListing.path` echoes the request string, `BrowseSession` lists Documents on every `ready`, and every other `OSError` maps to `folderNotFound`. None is reachable in 1.4, where no request carries a path.
+  resolved: Story 1.5 (2026-11-09). The engine's `resolve` normalizes every path, the session re-lists the current folder after `ready`, and `folderUnavailable` covers a drive that isn't ready or an unreachable share.
+
+## Deferred from: Story 1.5 scope split (2026-11-09)
+
+- source_spec: none
+  summary: Make a `listFolder` enumeration abandonable, so a blocking `scandir` (dead network share, drive not ready) can't hold the channel worker while newer listings queue behind it; build it right after Story 1.5.
+  evidence: Split from Story 1.5 at the user's choice ("1–3 now, 4 next"). It touches only the engine's channel/queue and none of 1.5's navigation depends on it; it becomes reachable once 1.5 adds typed and navigated paths (review D1 of Story 1.4).
+  resolved: `spec-abandonable-listing.md` (2026-11-09, commit 3253844). A request stuck past its cancel is abandoned after 250 ms, so newer listings no longer queue behind it.
+
+## Deferred from: code review of spec-1-5-navigate-folders.md (2026-11-09)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-5-navigate-folders.md`
+  summary: The browse list has no tab stop when no row is selected, and focus drops to the body after a row opens a folder. Give the list a roving tabindex (first row when none is selected) and move focus into the new listing after an open.
+  evidence: Review of Story 1.5 (blind-hunter, edge-case-hunter). Pre-existing: 1.4 rows took no focus. Story 1.8 owns the Tab order and ↑/↓ movement.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-5-navigate-folders.md`
+  summary: Check whether `GetVolumeInformationW` on an empty removable drive raises a "no disk" system dialog that blocks the `locations` channel; if it does, call `SetErrorMode(SEM_FAILCRITICALERRORS)` at engine start.
+  evidence: Review of Story 1.5 (edge-case-hunter), unverified (medium if true). Settle by opening the app with an empty card reader or USB slot under `tauri dev`.
+
+## Deferred from: Story 1.6 build review (2026-11-09)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-6-open-a-file-and-show-it-in-its-folder.md`
+  summary: `open_file` calls `ShellExecuteExW` with `hwnd` null, so Windows' "Open with" or error dialog may appear behind the app window; if it does, pass the main window's HWND.
+  evidence: Review of Story 1.6 (edge-case-hunter, blind-hunter), unverified (medium if true). Settle under `tauri dev` by opening a file type with no associated app, and a file deleted after listing.
+
+## Deferred from: Story 1.7 build review (2026-11-09)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-7-handle-folders-i-cant-open.md`
+  summary: Decide whether `walk()` should also skip directories with FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS (partly virtualized contents, which enumerating may fetch), not only RECALL_ON_OPEN ones.
+  evidence: Review of Story 1.7 (edge-case-hunter), unverified (medium if true). Skipping them could also stop name search in ordinary OneDrive folders if those carry the bit. Settle on a PC with OneDrive Files On-Demand by reading the attributes of populated and online-only folders, before Epic 2's name search walks Documents.
+
+## Deferred from: Story 1.8 review (2026-11-10)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-8-browse-with-the-keyboard-alone.md`
+  summary: Make Back/Forward step from a pending target, so pressing Alt+← (or the Back button) twice before the first reply goes back two folders, not one.
+  evidence: `BrowseSession.back()` reads `backStack.at(-1)`, which only changes when a reply commits. A second press re-requests the same target and cancels the first (latest wins). Predates 1.8 (Story 1.5 buttons); noticeable only on slow folders such as network shares. Review finding EC4.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-8-browse-with-the-keyboard-alone.md`
+  summary: Give the browse list grid or listbox semantics (e.g. `role="grid"`, `aria-multiselectable="false"`) so Narrator announces the arrow-key selection, then verify with Narrator. Medium; target Story 7.3.
+  evidence: Rows are `<tr aria-selected tabIndex>` in a plain `<table>`, where `aria-selected` isn't a supported state, so screen readers may not announce selection changes as ↑/↓ move it. The markup predates 1.8 (Story 1.4). Review finding BH5.

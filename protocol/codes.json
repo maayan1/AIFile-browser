@@ -3,6 +3,7 @@
     "unknownRequest",
     "invalidRequest",
     "folderNotFound",
-    "accessDenied"
+    "accessDenied",
+    "folderUnavailable"
   ]
 }

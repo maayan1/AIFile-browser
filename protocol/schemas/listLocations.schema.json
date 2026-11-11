@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ListLocations",
+  "description": "Request: the places the nav pane offers (known folders and drives). Served on its own channel, since reading a removable drive's label can block.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "listLocations" }
+  },
+  "required": ["id", "type"],
+  "additionalProperties": false
+}

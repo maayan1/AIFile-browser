@@ -9,21 +9,29 @@ import type {
   ErrorMessage,
   FolderListing,
   ListFolder,
+  ListLocations,
+  Locations,
   Ping,
   Pong,
   ProtocolMessage,
   Ready,
+  ShowInFolder,
   Status,
   StatusReport,
 } from "./generated";
 
 /** Requests the UI may send; the client adds the `id`. */
-export type Request = Omit<Ping, "id"> | Omit<Status, "id"> | Omit<ListFolder, "id">;
+export type Request =
+  | Omit<Ping, "id">
+  | Omit<Status, "id">
+  | Omit<ListFolder, "id">
+  | Omit<ShowInFolder, "id">
+  | Omit<ListLocations, "id">;
 /**
  * Terminal replies, matched to a request by `id`. `cancelled` ends a request that a newer one on
  * the same engine channel replaced (latest wins).
  */
-export type Reply = Pong | StatusReport | FolderListing | Cancelled | ErrorMessage;
+export type Reply = Pong | StatusReport | FolderListing | Locations | Cancelled | ErrorMessage;
 /** Unsolicited engine messages (`id: null`). */
 export type EngineEvent = Ready | (ErrorMessage & { id: null });
 /** The engine state as the shell's supervisor reports it. */

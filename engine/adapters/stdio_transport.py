@@ -10,7 +10,8 @@
   fixed placeholder here until indexing arrives. Both run on the reader thread.
 - Long requests run on a channel (AD-10): one worker thread per channel, latest wins. The reader
   thread only queues them, so ``ping`` is answered while a listing runs. A newer request on the
-  channel cancels the older one's token, and the older one ends with ``cancelled``.
+  channel cancels the older one's token, and the older one ends with ``cancelled``; one stuck
+  inside an OS call past a short grace period is abandoned to a thread of its own.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ import os
 import queue
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any, BinaryIO, Callable
 
@@ -106,58 +108,169 @@ def _set_binary(fd: int) -> None:
         msvcrt.setmode(fd, os.O_BINARY)
 
 
+# How long a cancelled request may keep running before its channel stops waiting for it. A
+# listing that is only slow checks its token every few hundred entries and ends well within it;
+# one blocked inside an OS call (a dead share, a drive that isn't ready) does not.
+ABANDON_AFTER = 0.25
+
+# Abandoned threads still blocked per channel; at the cap the channel waits for the running
+# request again instead of starting yet another thread.
+MAX_ABANDONED = 8
+
+
+class _Job:
+    """One submitted request. `done` and `abandoned` change only under the channel's lock."""
+
+    def __init__(self, request: Message, handler: ChannelHandler, token: CancelToken) -> None:
+        self.request = request
+        self.handler = handler
+        self.token = token
+        self.done = False
+        self.abandoned = False
+
+
 class Channel:
-    """One worker thread running one request at a time, latest wins (AD-10).
+    """One worker thread serving the queue one request at a time, latest wins (AD-10).
 
     Every submitted request ends with exactly one terminal reply: its handler's reply, an
     ``invalidRequest`` error if the handler fails, or ``cancelled`` if a newer request arrived
     before its reply was queued.
+
+    A cancelled request still running after ``abandon_after`` seconds is abandoned: Python can't
+    interrupt a thread inside an OS call, so the channel sends the request's ``cancelled`` reply
+    itself, starts a fresh worker for the queue, and drops whatever the stuck thread returns.
+    So an abandoned handler can still be running beside the next one on the same channel, as
+    handlers on different channels already do: handlers and the ports they share must be
+    thread-safe.
     """
 
-    def __init__(self, name: str, send: Callable[[Message], None]) -> None:
+    def __init__(
+        self,
+        name: str,
+        send: Callable[[Message], None],
+        abandon_after: float = ABANDON_AFTER,
+        max_abandoned: int = MAX_ABANDONED,
+    ) -> None:
         self.name = name
         self._send = send
+        self._abandon_after = abandon_after
+        self._max_abandoned = max_abandoned
         self._lock = threading.Lock()
         self._latest: CancelToken | None = None
-        self._queue: queue.Queue[tuple[Message, ChannelHandler, CancelToken] | None] = queue.Queue()
-        self._thread = threading.Thread(target=self._run, name=f"channel-{name}", daemon=True)
-        self._thread.start()
+        self._last_done: CancelToken | None = None  # the token of the last request that ended
+        self._running: _Job | None = None
+        self._abandoned = 0  # abandoned threads that haven't returned yet
+        self._workers = 0  # workers started, for thread names
+        self._queue: queue.Queue[_Job | None] = queue.Queue()
+        self._thread = self._start_worker()
 
     def submit(self, request: Message, handler: ChannelHandler) -> None:
         token = CancelToken()
         with self._lock:
             # Every older request was cancelled when its successor arrived, so only the latest
             # can still be live.
-            if self._latest is not None:
-                self._latest.cancel()
+            previous = self._latest
+            if previous is not None:
+                previous.cancel()
             self._latest = token
-        self._queue.put((request, handler, token))
+            # Watch the previous request unless it has already ended (the usual case).
+            watch = previous is not None and previous is not self._last_done
+        self._queue.put(_Job(request, handler, token))
+        if watch:
+            # Keyed on the token, not on what runs now: the worker may have taken the previous
+            # request off the queue without having marked it running yet.
+            timer = threading.Timer(self._abandon_after, self._abandon, args=(previous,))
+            timer.daemon = True
+            timer.start()
+
+    @property
+    def abandoned(self) -> int:
+        """How many abandoned threads are still blocked."""
+        with self._lock:
+            return self._abandoned
 
     def close(self, timeout: float = 5.0) -> None:
-        """Cancel what is running, answer what is queued, and stop the worker."""
+        """Cancel what is running, answer what is queued, and stop the worker.
+
+        A request stuck in an OS call is abandoned after the grace period, so it still gets its
+        ``cancelled`` reply and closing doesn't wait out the timeout for it.
+        """
         with self._lock:
             if self._latest is not None:
                 self._latest.cancel()
         self._queue.put(None)
-        self._thread.join(timeout=timeout)
+        deadline = time.monotonic() + timeout
+        while True:
+            with self._lock:
+                worker, running = self._thread, self._running
+            worker.join(timeout=max(0.0, min(self._abandon_after, deadline - time.monotonic())))
+            if not worker.is_alive():
+                with self._lock:
+                    if self._thread is worker:
+                        return
+                continue  # an abandon started a fresh worker, which now owns the sentinel
+            if time.monotonic() >= deadline:
+                log.warning("channel %s: closed with a request still running", self.name)
+                return
+            if running is not None:
+                self._abandon(running.token)
+
+    def _start_worker(self) -> threading.Thread:
+        self._workers += 1
+        name = f"channel-{self.name}" if self._workers == 1 else f"channel-{self.name}-{self._workers}"
+        thread = threading.Thread(target=self._run, name=name, daemon=True)
+        thread.start()
+        return thread
+
+    def _abandon(self, token: CancelToken) -> None:
+        """Stop waiting for the request `token` cancelled, if it is still running (a timer calls
+        this after the cancel)."""
+        with self._lock:
+            job = self._running
+            if job is None or job.token is not token or job.done:
+                return
+            if self._abandoned >= self._max_abandoned:
+                log.warning("channel %s: %d requests already stuck; waiting for this one", self.name, self._abandoned)
+                return
+            job.abandoned = True
+            self._abandoned += 1
+            self._running = None
+            log.warning("channel %s: abandoned a %s stuck past its cancel", self.name, job.request["type"])
+            self._send(cancelled(job.request["id"]))
+            self._thread = self._start_worker()
 
     def _run(self) -> None:
         while True:
-            item = self._queue.get()
-            if item is None:
+            job = self._queue.get()
+            if job is None:
                 return
-            request, handler, token = item
-            request_id = request["id"]
-            try:
-                reply = cancelled(request_id) if token.cancelled else handler(request, token)
-            except Cancelled:
-                reply = cancelled(request_id)
-            except Exception:
-                log.exception("handler for %r failed", request["type"])
-                reply = error(request_id, INVALID_REQUEST)
-            if token.cancelled and reply.get("type") != "cancelled":
-                reply = cancelled(request_id)
+            with self._lock:
+                self._running = job
+            reply = self._reply(job)
+            with self._lock:
+                if job.abandoned:
+                    # Its cancelled reply went out already, and a fresh worker owns the queue.
+                    self._abandoned -= 1
+                    log.info("channel %s: an abandoned %s returned", self.name, job.request["type"])
+                    return
+                job.done = True
+                self._last_done = job.token
+                self._running = None
             self._send(reply)
+
+    @staticmethod
+    def _reply(job: _Job) -> Message:
+        request_id = job.request["id"]
+        try:
+            reply = cancelled(request_id) if job.token.cancelled else job.handler(job.request, job.token)
+        except Cancelled:
+            reply = cancelled(request_id)
+        except Exception:
+            log.exception("handler for %r failed", job.request["type"])
+            reply = error(request_id, INVALID_REQUEST)
+        if job.token.cancelled and reply.get("type") != "cancelled":
+            reply = cancelled(request_id)
+        return reply
 
 
 class StdioTransport:

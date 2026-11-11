@@ -160,4 +160,9 @@
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
   }
+
+  /* Rows draw it inside, so the sticky header and the pane edges never hide it. */
+  tr:focus-visible {
+    outline-offset: -2px;
+  }
 }

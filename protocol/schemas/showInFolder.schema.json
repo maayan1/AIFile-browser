@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShowInFolder",
+  "description": "Request: the folder that holds an item, with that item selected. Shares listFolder's channel, so either one ends the other with cancelled (latest wins). The reply is a folderListing with selected, or the folder error listFolder would send for the item's folder; a drive or share root has no containing folder and is folderNotFound.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "showInFolder" },
+    "path": { "description": "The item's path, file or folder, normalized by the engine as listFolder's path is.", "type": "string", "minLength": 1 }
+  },
+  "required": ["id", "type", "path"],
+  "additionalProperties": false
+}

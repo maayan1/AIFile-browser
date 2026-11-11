@@ -7,7 +7,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from core.browse import CANCEL_CHECK_EVERY, list_folder
+from core.browse import CANCEL_CHECK_EVERY, join_path, list_folder, split_path
 from core.cancel import Cancelled, CancelToken
 from core.candidates import is_candidate
 from core.ports.filesystem import (
@@ -22,6 +22,7 @@ from core.ports.filesystem import (
     IO_REPARSE_TAG_CLOUD_6,
     IO_REPARSE_TAG_MOUNT_POINT,
     IO_REPARSE_TAG_SYMLINK,
+    Drive,
     FsEntry,
 )
 from core.rules.file_types import TYPE_CODES, extension, file_type_code
@@ -39,13 +40,45 @@ def folder(name: str, attributes: int = 0, reparse_tag: int = 0) -> FsEntry:
 
 
 class FakeFs:
-    def __init__(self, folders: dict[str, list[FsEntry]], documents: str = r"C:\Users\dana\Documents") -> None:
+    """Folders keyed by their resolved path; `resolve` accepts any casing of a key."""
+
+    def __init__(
+        self,
+        folders: dict[str, list[FsEntry]],
+        documents: str = r"C:\Users\dana\Documents",
+        known: dict[str, str] | None = None,
+        drives: list[Drive] | None = None,
+    ) -> None:
         self.folders = folders
         self.documents = documents
+        self.known = {"documents": documents} if known is None else known
+        self.drive_list = drives or []
         self.listed: list[str] = []
+        self.drive_queries: list[str | None] = []
 
     def documents_folder(self) -> str:
         return self.documents
+
+    def known_folders(self) -> dict[str, str]:
+        return dict(self.known)
+
+    def drives(self, letter: str | None = None) -> list[Drive]:
+        self.drive_queries.append(letter)
+        return [d for d in self.drive_list if letter is None or d.letter == letter]
+
+    def resolve(self, path: str) -> str:
+        for key in self.folders:
+            if key.casefold() == path.casefold():
+                return key
+        raise FileNotFoundError(path)
+
+    def locate(self, path: str) -> tuple[str, str | None]:
+        root, names = split_path(path)
+        if not names:
+            raise FileNotFoundError(path)
+        folder = self.resolve(join_path(root, names[:-1]))
+        found = (e.name for e in self.folders[folder] if e.name.casefold() == names[-1].casefold())
+        return folder, next(found, None)
 
     def list(self, path: str) -> Iterator[FsEntry]:
         self.listed.append(path)
@@ -212,7 +245,12 @@ def test_type_codes_match_the_protocol_schema() -> None:
 
 def test_empty_folder_lists_no_entries() -> None:
     fs = FakeFs({"X:\\": [file("~$lock.docx"), file("desktop.ini", FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)]})
-    assert list_folder(fs, "X:\\", CancelToken()) == {"path": "X:\\", "entries": []}
+    assert list_folder(fs, "X:\\", CancelToken()) == {
+        "path": "X:\\",
+        "parent": None,
+        "segments": [{"kind": "drive", "letter": "X", "label": None, "path": "X:\\"}],
+        "entries": [],
+    }
 
 
 def test_port_errors_pass_through() -> None:
@@ -243,7 +281,7 @@ def test_cancel_is_checked_every_200_entries() -> None:
                 yield file(f"f{i}.txt")
 
     with pytest.raises(Cancelled):
-        list_folder(CancellingFs({}), "X:\\", token)
+        list_folder(CancellingFs({"X:\\": []}), "X:\\", token)
     assert pulled == 2 * CANCEL_CHECK_EVERY
 
 
@@ -256,4 +294,4 @@ def test_cancel_after_the_last_entry_still_cancels() -> None:
             token.cancel()
 
     with pytest.raises(Cancelled):
-        list_folder(CancellingFs({}), "X:\\", token)
+        list_folder(CancellingFs({"X:\\": []}), "X:\\", token)

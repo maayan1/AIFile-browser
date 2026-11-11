@@ -6,6 +6,7 @@ compile_error!("File Browser 2 targets Windows 11 only: the engine supervisor us
 
 mod engine;
 mod job;
+mod open;
 mod shell_log;
 
 use std::sync::Arc;
@@ -26,7 +27,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             engine::engine_send,
             engine::engine_ready,
-            engine::engine_state
+            engine::engine_state,
+            open::open_file
         ])
         .setup(|app| {
             // The shell log comes first so the supervisor's first diagnostics are kept. Release
