@@ -35,7 +35,7 @@ import { DEFAULT_SORT, nextSort, sortEntries, type SortColumn, type SortOrder } 
 
 // The browse list (FR-1, FR-3): a table with a sticky, sortable header. A click selects one row
 // and focuses it; double-click or Enter opens it: a folder in the app, a file in its Windows
-// default app. A right-click, Shift+F10 or the Menu key selects the row and opens its menu (Open,
+// default app. A right click, Shift+F10 or the Menu key selects the row and opens its menu (Open,
 // Show in folder); Ctrl+Shift+E runs Show in folder. Focus and selection are separate, as in File
 // Explorer (UX-DR22): the list's one tab stop is the selected row, or else the first; ↑/↓ select the
 // focused row, then move the selection and focus (no wrap); Home/End go to the ends; Space selects.
@@ -88,7 +88,7 @@ function isRtl(element: HTMLElement): boolean {
   return element.closest("[dir]")?.getAttribute("dir") === "rtl";
 }
 
-/** At the pointer, for a right-click. */
+/** At the pointer, for a right click. */
 function atPointer(row: HTMLElement, clientX: number, clientY: number): MenuPosition {
   return { top: clientY, inlineStart: isRtl(row) ? window.innerWidth - clientX : clientX };
 }
@@ -301,7 +301,7 @@ function Row({
   function onContextMenu(event: MouseEvent<HTMLTableRowElement>) {
     event.preventDefault();
     const row = event.currentTarget;
-    // A right-click opens at the pointer; a keyboard-made contextmenu event (button 0) at the row.
+    // A right click opens at the pointer; a keyboard-made contextmenu event (button 0) at the row.
     onMenu(row, event.button === 2 ? atPointer(row, event.clientX, event.clientY) : atRow(row));
   }
 
