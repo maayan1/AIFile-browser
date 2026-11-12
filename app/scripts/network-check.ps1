@@ -109,14 +109,21 @@ function Get-WebView2Version {
 }
 
 # Our subcategory's value from the lines of an `auditpol /backup` file: 0 none, 1 success,
-# 2 failure, 3 both. Throws when the row is missing or unreadable: guessing 0 would make the
-# restore turn off an audit that was on.
+# 2 failure, 3 both. A file that parses (other subcategory rows are read) but has no row for ours
+# means ours is not configured: 0. Throws when no subcategory row parses at all or our value is
+# unreadable: guessing 0 then would make the restore turn off an audit that was on.
 function ConvertFrom-AuditBackup([string[]]$lines) {
     # Own headers: the file's own header row may be localized.
-    $rows = $lines | Select-Object -Skip 1 |
-        ConvertFrom-Csv -Header Machine, Target, Subcategory, Guid, Inclusion, Exclusion, Value
-    $row = @($rows | Where-Object { $_.Guid -eq $AuditGuid })
-    if ($row.Count -eq 0) { throw "auditpol /backup has no row for $AuditGuid (Filtering Platform Connection)" }
+    $rows = @($lines | Select-Object -Skip 1 |
+        ConvertFrom-Csv -Header Machine, Target, Subcategory, Guid, Inclusion, Exclusion, Value)
+    $subcategories = @($rows | Where-Object { [string]$_.Guid -match '^\{[0-9A-Fa-f-]{36}\}$' -and [string]$_.Value -match '^\s*\d+\s*$' })
+    if ($subcategories.Count -eq 0) { throw "auditpol /backup could not be read: no subcategory rows" }
+    $row = @($subcategories | Where-Object { $_.Guid -eq $AuditGuid })
+    if ($row.Count -eq 0) {
+        # Our GUID may still be present with an unreadable value; that must not count as "not configured".
+        if (@($rows | Where-Object { $_.Guid -eq $AuditGuid }).Count) { $row = @($rows | Where-Object { $_.Guid -eq $AuditGuid }) }
+        else { return 0 }
+    }
     $value = [string]$row[0].Value
     if ($value -notmatch '^\s*[0-3]\s*$') { throw "auditpol /backup has an unreadable value '$value' for $AuditGuid" }
     return [int]$value
@@ -465,9 +472,8 @@ function Add-EventConnection($ev) {
     $procId = [long](Get-Field $ev 'ProcessID')
     $application = [string](Get-Field $ev 'Application')
     $process = $application.Substring($application.LastIndexOf('\') + 1).ToLowerInvariant()
-    $interesting = $tree.ContainsKey($procId) -or $updater.ContainsKey($procId) -or
-        $UpdaterImages -contains $process -or $TreeImages -contains $process
-    if (-not $interesting) { return }
+    # Every event waits in pending: a tree descendant of any image (a WebView2 helper, an engine
+    # child) can connect before the next poll adds it to the tree. Resolve-Pending drops the rest.
     $dirCode = [string](Get-Field $ev 'Direction')
     $null = $pending.Add([pscustomobject]@{
             pid = $procId; process = $process; polls = 0; when = $ev.TimeCreated.ToString('o')

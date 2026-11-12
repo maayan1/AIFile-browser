@@ -337,6 +337,22 @@ Describe 'network-check.ps1' {
             }
         }
 
+        Context 'attributes a non-listed descendant that connects before the poll adds it' {
+            It 'attributes a non-listed descendant that connects before the poll adds it' {
+                Initialize-TestRun
+                $null = Update-Tree
+                Add-EventConnection (New-WfpEvent 107 '\device\harddiskvolume3\webview\helper.exe' '20.8.8.8')
+                Resolve-Pending
+                $endpoints.Count | Should Be 0
+                Mock Get-CimInstance { @(Get-AppProcs) + @(New-Proc 107 102 'helper.exe') }
+                $null = Update-Tree
+                Resolve-Pending
+                $report = Write-Results
+                $report.summary.appConnections | Should Be 1
+                $report.app[0].process | Should Be 'helper.exe'
+            }
+        }
+
         Context 'never counts a reused PID whose image differs from the tree process' {
             It 'never counts a reused PID whose image differs from the tree process' {
                 Initialize-TestRun
@@ -639,8 +655,13 @@ Describe 'audit policy and self-test' {
         ConvertFrom-AuditBackup (Get-BackupLines $value) | Should Be $value
     }
 
-    It 'throws when the subcategory row is missing' {
-        { ConvertFrom-AuditBackup @($header, $other) } | Should Throw 'no row'
+    It 'reads 0 (not configured) when other subcategories parse but ours has no row' {
+        ConvertFrom-AuditBackup @($header, $other) | Should Be 0
+    }
+
+    It 'throws when no subcategory row parses at all' {
+        { ConvertFrom-AuditBackup @($header) } | Should Throw 'could not be read'
+        { ConvertFrom-AuditBackup @($header, 'garbage;line;without;columns') } | Should Throw 'could not be read'
     }
 
     It 'throws when the value is empty or unreadable' {

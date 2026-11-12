@@ -14,8 +14,9 @@ tools or packages.
 1. It checks it is elevated. If not, it stops at once and changes nothing.
 2. It records the current "Filtering Platform Connection" audit setting and the Security-log
    maximum size, then turns that audit on (success and failure) and raises the log to 1 GB. If the
-   current audit setting can't be read, the run stops: guessing it would mean restoring the wrong
-   value. The values to put back go to a fixed restore file,
+   `auditpol /backup` file can't be read at all (no subcategory rows parse), or our row has an
+   unreadable value, the run stops: guessing would mean restoring the wrong value. A file that
+   parses but has no row for this subcategory means it isn't configured, which counts as 0 (none). The values to put back go to a fixed restore file,
    `%LOCALAPPDATA%\FileBrowser2\network-check\restore.json`. It sits outside `target/`, so
    `cargo clean` doesn't delete it, and `-OutDir` doesn't move it.
 3. **Self-test.** The script opens a loopback TCP connection itself and waits up to 10 s for the
@@ -75,7 +76,8 @@ user-profile folder is replaced by `%USERPROFILE%`.
   attributed to the app. The connection that follows is.
 - The tree is polled once a second. A process that starts, connects and exits within one poll
   is never seen, so its connections are missed.
-- Connections waiting for the tree poll are held for up to three polls before they are dropped.
+- Every connection waits up to three polls for the tree poll, whatever its image, so a tree
+  descendant that connects just before it is first seen is still attributed. After that, it's dropped.
 - Restoring a lower Security-log maximum takes effect only after the log is next cleared. Until
   then the log file can stay at the size it reached during the run. The script never clears the
   log.
