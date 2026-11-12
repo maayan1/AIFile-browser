@@ -445,6 +445,8 @@ fn spawn(mut cmd: Command) -> io::Result<Child> {
 }
 
 /// Development: run the engine from source with uv, validating every message against `protocol/`.
+/// `--offline` keeps the launcher from contacting PyPI (NFR-1: the app makes no network
+/// connections; see docs/network-check.md). The environment must already be synced.
 #[cfg(debug_assertions)]
 fn engine_command() -> Option<Command> {
     let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -454,6 +456,7 @@ fn engine_command() -> Option<Command> {
     let engine_dir = repo.join("engine");
     let mut cmd = Command::new("uv");
     cmd.arg("run")
+        .arg("--offline")
         .arg("--project")
         .arg(&engine_dir)
         .arg("python")
@@ -594,6 +597,17 @@ mod tests {
     const READY: &str = include_str!("../../../protocol/examples/ready.json");
     const PONG: &str = include_str!("../../../protocol/examples/pong.json");
     const ERROR: &str = include_str!("../../../protocol/examples/error-unknown-request.json");
+
+    /// NFR-1: the dev launcher must never contact PyPI.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn dev_engine_runs_uv_offline() {
+        let cmd = engine_command().expect("debug builds start the engine from source");
+        let args: Vec<String> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        let pos = |name: &str| args.iter().position(|a| a == name).unwrap_or_else(|| panic!("no {name} in {args:?}"));
+        assert!(pos("run") < pos("--offline"), "{args:?}");
+        assert!(pos("--offline") < pos("--project"), "{args:?}");
+    }
 
     #[test]
     fn is_ready_only_for_the_ready_event() {
