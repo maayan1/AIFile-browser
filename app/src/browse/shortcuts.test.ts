@@ -78,11 +78,38 @@ describe("shortcutFor", () => {
     expect(press({ key: "d", code: "KeyD", altKey: true })).toBeNull(); // Alt+D is the breadcrumb's
   });
 
+  it("maps Ctrl+E and Ctrl+F to search, by physical key", () => {
+    expect(press({ key: "e", code: "KeyE", ctrlKey: true })).toBe("search");
+    expect(press({ key: "f", code: "KeyF", ctrlKey: true })).toBe("search");
+    // A Hebrew layout's Ctrl+E (ק) and Ctrl+F (כ).
+    expect(press({ key: "ק", code: "KeyE", ctrlKey: true })).toBe("search");
+    expect(press({ key: "כ", code: "KeyF", ctrlKey: true })).toBe("search");
+  });
+
+  it("maps unmodified F3 to search, as in File Explorer", () => {
+    expect(press({ key: "F3", code: "F3" })).toBe("search");
+    for (const modifier of ["altKey", "ctrlKey", "shiftKey", "metaKey"]) {
+      expect(press({ key: "F3", code: "F3", [modifier]: true }), modifier).toBeNull();
+    }
+    expect(press({ key: "F3", code: "F3", repeat: true })).toBeNull();
+  });
+
+  it("leaves Ctrl+Shift+E to the rows and rejects other search-like keys", () => {
+    expect(press({ key: "E", code: "KeyE", ctrlKey: true, shiftKey: true })).toBeNull(); // Show in folder
+    expect(press({ key: "F", code: "KeyF", ctrlKey: true, shiftKey: true })).toBeNull();
+    expect(press({ key: "e", code: "KeyE" })).toBeNull();
+    expect(press({ key: "f", code: "KeyF" })).toBeNull();
+    expect(press({ key: "e", code: "KeyE", ctrlKey: true, altKey: true })).toBeNull();
+    expect(press({ key: "f", code: "KeyF", metaKey: true, ctrlKey: true })).toBeNull();
+    expect(press({ key: "e", code: "KeyE", altKey: true })).toBeNull();
+  });
+
   it("ignores key repeats, IME compositions and events already handled", () => {
     for (const change of [{ repeat: true }, { isComposing: true }, { defaultPrevented: true }]) {
       expect(arrow("ArrowLeft", { altKey: true, ...change })).toBeNull();
       expect(press({ key: "F5", code: "F5", ...change })).toBeNull();
       expect(press({ key: "r", code: "KeyR", ctrlKey: true, ...change })).toBeNull();
+      expect(press({ key: "f", code: "KeyF", ctrlKey: true, ...change })).toBeNull();
     }
   });
 });
@@ -157,5 +184,31 @@ describe("useBrowseShortcuts", () => {
     expect(actions.back).not.toHaveBeenCalled();
     unmount();
     expect(fireEvent.keyDown(window, { key: "F5" })).toBe(true);
+  });
+
+  it("focuses the Search Bar on Ctrl+E, Ctrl+F and F3 and stops WebView2's find bar", () => {
+    const actions = fakeActions();
+    const focusSearch = vi.fn();
+    renderHook(() => useBrowseShortcuts(actions, focusSearch));
+    expect(fireEvent.keyDown(window, { key: "e", code: "KeyE", ctrlKey: true })).toBe(false);
+    expect(fireEvent.keyDown(window, { key: "f", code: "KeyF", ctrlKey: true })).toBe(false);
+    expect(fireEvent.keyDown(window, { key: "F3", code: "F3" })).toBe(false);
+    expect(focusSearch).toHaveBeenCalledTimes(3);
+    // Held keys' repeats are stopped too, without focusing again.
+    expect(fireEvent.keyDown(window, { key: "f", code: "KeyF", ctrlKey: true, repeat: true })).toBe(false);
+    expect(fireEvent.keyDown(window, { key: "F3", code: "F3", repeat: true })).toBe(false);
+    expect(focusSearch).toHaveBeenCalledTimes(3);
+    // Shift+F3 is left alone.
+    expect(fireEvent.keyDown(window, { key: "F3", code: "F3", shiftKey: true })).toBe(true);
+    // Ctrl+Shift+E is left to the rows.
+    expect(fireEvent.keyDown(window, { key: "E", code: "KeyE", ctrlKey: true, shiftKey: true })).toBe(true);
+    expect(Object.values(actions).some((fn) => fn.mock.calls.length > 0)).toBe(false);
+  });
+
+  it("focuses the Search Bar even before the browse session exists", () => {
+    const focusSearch = vi.fn();
+    renderHook(() => useBrowseShortcuts(undefined, focusSearch));
+    expect(fireEvent.keyDown(window, { key: "e", code: "KeyE", ctrlKey: true })).toBe(false);
+    expect(focusSearch).toHaveBeenCalledTimes(1);
   });
 });

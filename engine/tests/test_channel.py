@@ -10,7 +10,7 @@ from collections.abc import Iterator
 import pytest
 
 from adapters.stdio_transport import Channel, Message
-from core.cancel import CancelToken
+from core.cancel import Cancelled, CancelToken
 from core.ports.filesystem import Drive, FsEntry
 import main
 
@@ -207,6 +207,111 @@ def test_close_does_not_wait_for_an_abandoned_thread() -> None:
         assert time.monotonic() - began < 1
     finally:
         release.set()
+
+
+# ----- streaming handlers: emit (AD-15) ---------------------------------------
+
+
+def test_emitted_replies_go_out_in_order_before_the_terminal_one() -> None:
+    ch, sent = channel()
+
+    def streaming(request: Message, token: CancelToken, emit) -> Message:  # type: ignore[no-untyped-def]
+        for n in range(3):
+            emit({"id": request["id"], "type": "part", "n": n})
+        return {"id": request["id"], "type": "done"}
+
+    ch.submit({"id": "a", "type": "x"}, streaming, streaming=True)
+    got = [sent.get(timeout=TIMEOUT) for _ in range(4)]
+    assert got == [
+        {"id": "a", "type": "part", "n": 0},
+        {"id": "a", "type": "part", "n": 1},
+        {"id": "a", "type": "part", "n": 2},
+        {"id": "a", "type": "done"},
+    ]
+    # A plain handler on the same channel still gets two arguments.
+    ch.submit({"id": "b", "type": "x"}, reply_with("pong"))
+    assert sent.get(timeout=TIMEOUT) == {"id": "b", "type": "pong"}
+    ch.close()
+    assert sent.empty()
+
+
+def test_an_emit_after_a_cancel_is_dropped_and_raises_cancelled() -> None:
+    ch, sent = channel()
+    emitted, release = threading.Event(), threading.Event()
+    outcome: list[str] = []
+
+    def streaming(request: Message, token: CancelToken, emit) -> Message:  # type: ignore[no-untyped-def]
+        emit({"id": request["id"], "type": "part"})
+        emitted.set()
+        release.wait(TIMEOUT)
+        try:
+            emit({"id": request["id"], "type": "late"})
+        except Cancelled:
+            outcome.append("cancelled")
+            raise
+        outcome.append("sent")
+        return {"id": request["id"], "type": "done"}
+
+    ch.submit({"id": "a", "type": "x"}, streaming, streaming=True)
+    assert emitted.wait(TIMEOUT)
+    ch.submit({"id": "b", "type": "x"}, reply_with("pong"))
+    release.set()
+    assert sent.get(timeout=TIMEOUT) == {"id": "a", "type": "part"}
+    assert sent.get(timeout=TIMEOUT) == {"id": "a", "type": "cancelled"}
+    assert sent.get(timeout=TIMEOUT) == {"id": "b", "type": "pong"}
+    assert outcome == ["cancelled"]
+    ch.close()
+    assert sent.empty()
+
+
+def test_an_emit_from_an_abandoned_request_never_follows_its_cancelled_reply() -> None:
+    ch, sent = channel()
+    started, release, finished = threading.Event(), threading.Event(), threading.Event()
+    outcome: list[str] = []
+
+    def stuck_streaming(request: Message, token: CancelToken, emit) -> Message:  # type: ignore[no-untyped-def]
+        emit({"id": request["id"], "type": "part"})
+        started.set()
+        release.wait(30)  # blocked as if inside an OS call, past the grace period
+        try:
+            emit({"id": request["id"], "type": "late"})
+            outcome.append("sent")
+        except Cancelled:
+            outcome.append("cancelled")
+        finally:
+            finished.set()
+        return {"id": request["id"], "type": "done"}
+
+    try:
+        ch.submit({"id": "a", "type": "x"}, stuck_streaming, streaming=True)
+        assert started.wait(TIMEOUT)
+        ch.submit({"id": "b", "type": "x"}, reply_with("pong"))
+        assert sent.get(timeout=2) == {"id": "a", "type": "part"}
+        assert sent.get(timeout=2) == {"id": "a", "type": "cancelled"}
+        assert sent.get(timeout=2) == {"id": "b", "type": "pong"}
+        assert ch.abandoned == 1
+    finally:
+        release.set()
+    assert finished.wait(TIMEOUT)
+    deadline = time.monotonic() + TIMEOUT
+    while ch.abandoned and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert outcome == ["cancelled"]
+    assert sent.empty()  # neither the late emit nor the stuck thread's own reply went out
+    ch.close()
+
+
+def test_a_streaming_handler_that_fails_after_emitting_ends_with_invalid_request() -> None:
+    ch, sent = channel()
+
+    def broken(request: Message, token: CancelToken, emit) -> Message:  # type: ignore[no-untyped-def]
+        emit({"id": request["id"], "type": "part"})
+        raise RuntimeError("bug")
+
+    ch.submit({"id": "a", "type": "x"}, broken, streaming=True)
+    assert sent.get(timeout=TIMEOUT) == {"id": "a", "type": "part"}
+    assert sent.get(timeout=TIMEOUT) == {"id": "a", "type": "error", "code": "invalidRequest", "data": {}}
+    ch.close()
 
 
 class RaisingFs:

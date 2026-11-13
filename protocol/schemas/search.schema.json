@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Search",
+  "description": "Request: find what matches text in folder and all its subfolders (AD-15). One Enter sends one search. Its replies on this id, in order: searchParsed, then one or more nameMatches, then exactly one terminal searchDone, or cancelled when a newer search replaced it (latest wins on the search channel), or the folder error listFolder would send when folder can't be resolved or listed. The engine never logs text.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "search" },
+    "text": { "description": "As typed. The engine trims it; whitespace-only text is never sent.", "type": "string", "pattern": "\\S" },
+    "folder": { "description": "The folder to search in, as listed; normalized by the engine as listFolder's path is.", "type": "string", "minLength": 1 },
+    "literalPhrases": { "description": "Phrases to match as typed, never read as a date or filler (later epics).", "type": "array", "items": { "type": "string" } }
+  },
+  "required": ["id", "type", "text", "folder"],
+  "additionalProperties": false
+}

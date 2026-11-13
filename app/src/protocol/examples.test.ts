@@ -239,3 +239,67 @@ describe("ProtocolClient", () => {
     expect(readySeen()).toBe(true);
   });
 });
+
+describe("ProtocolClient.stream", () => {
+  it("delivers the non-terminal replies in order and resolves with the terminal one", async () => {
+    const { transport, sent, deliver } = fakeTransport();
+    const client = new ProtocolClient(transport, () => "q1");
+    await client.start();
+    const seen: unknown[] = [];
+    const done = client.stream({ type: "search", text: "report", folder: "C:\\Docs" }, (m) => seen.push(m));
+    expect(sent.map((l) => JSON.parse(l))).toEqual([{ type: "search", text: "report", folder: "C:\\Docs", id: "q1" }]);
+    deliver('{"id":"q1","type":"searchParsed","mode":"normal","dateRange":null,"residualText":"report"}');
+    deliver('{"id":"q1","type":"nameMatches","matches":[]}');
+    deliver('{"id":"other","type":"nameMatches","matches":[]}'); // another id: not this request's
+    deliver('{"id":"q1","type":"nameMatches","matches":[]}');
+    deliver('{"id":"q1","type":"searchDone","notices":[],"indexVersion":null,"indexingActive":false}');
+    await expect(done).resolves.toEqual({ id: "q1", type: "searchDone", notices: [], indexVersion: null, indexingActive: false });
+    expect(seen.map((m) => (m as { type: string }).type)).toEqual(["searchParsed", "nameMatches", "nameMatches"]);
+    // Nothing after the terminal reply reaches the listener.
+    deliver('{"id":"q1","type":"nameMatches","matches":[]}');
+    expect(seen).toHaveLength(3);
+    expect((client as unknown as { pending: Map<string, unknown> }).pending.size).toBe(0);
+  });
+
+  it("resolves with cancelled or an error like request", async () => {
+    const { transport, deliver } = fakeTransport();
+    let n = 0;
+    const client = new ProtocolClient(transport, () => `q${++n}`);
+    await client.start();
+    const first = client.stream({ type: "search", text: "a", folder: "C:\\" }, () => {});
+    const second = client.stream({ type: "search", text: "b", folder: "C:\\gone" }, () => {});
+    deliver('{"id":"q1","type":"cancelled"}');
+    deliver('{"id":"q2","type":"error","code":"folderNotFound","data":{}}');
+    await expect(first).resolves.toEqual({ id: "q1", type: "cancelled" });
+    await expect(second).resolves.toMatchObject({ type: "error", code: "folderNotFound" });
+  });
+
+  it("rejects with EngineStoppedError when the engine restarts mid-stream", async () => {
+    const { transport, deliver, pushState } = fakeTransport();
+    const client = new ProtocolClient(transport, () => "q1");
+    await client.start();
+    const seen: unknown[] = [];
+    const done = client.stream({ type: "search", text: "a", folder: "C:\\" }, (m) => seen.push(m));
+    deliver('{"id":"q1","type":"searchParsed","mode":"normal","dateRange":null,"residualText":"a"}');
+    pushState("restarting");
+    await expect(done).rejects.toBeInstanceOf(EngineStoppedError);
+    deliver('{"id":"q1","type":"nameMatches","matches":[]}');
+    expect(seen).toHaveLength(1);
+  });
+
+  it("never resolves a plain request with a non-terminal reply", async () => {
+    const { transport, deliver } = fakeTransport();
+    const client = new ProtocolClient(transport, () => "q1");
+    await client.start();
+    let settled = false;
+    const done = client.request({ type: "search", text: "a", folder: "C:\\" }).then((r) => {
+      settled = true;
+      return r;
+    });
+    deliver('{"id":"q1","type":"searchParsed","mode":"normal","dateRange":null,"residualText":"a"}');
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    deliver('{"id":"q1","type":"searchDone","notices":[],"indexVersion":null,"indexingActive":false}');
+    await expect(done).resolves.toMatchObject({ type: "searchDone" });
+  });
+});

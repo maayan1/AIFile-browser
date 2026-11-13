@@ -1,5 +1,7 @@
+import { useCallback, useRef } from "react";
 import type { BrowseActions, BrowseSnapshot } from "@/browse/session";
 import { useBrowseShortcuts } from "@/browse/shortcuts";
+import type { SearchActions, SearchSnapshot } from "@/search/session";
 import { EngineBanner } from "@/components/EngineBanner";
 import { FilterBar } from "./FilterBar";
 import { MainArea, NavPane, PreviewPanel, StatusBar } from "./panes";
@@ -12,17 +14,28 @@ export function AppShell({
   bannerVisible,
   browse,
   actions,
+  search,
+  searchActions,
 }: {
   bannerVisible: boolean;
   browse?: BrowseSnapshot;
   /** The browse session's navigation; without it every navigation control is inert. */
   actions?: BrowseActions;
+  search?: SearchSnapshot;
+  /** The search session; without it Enter in the Search Bar sends nothing. */
+  searchActions?: SearchActions;
 }) {
-  // Alt+←/→/↑ and F5 from anywhere in the window.
-  useBrowseShortcuts(actions);
+  const searchInput = useRef<HTMLInputElement>(null);
+  // Focused with its text selected, so typing replaces the last search (as in File Explorer).
+  const focusSearch = useCallback(() => {
+    searchInput.current?.focus();
+    searchInput.current?.select();
+  }, []);
+  // Alt+←/→/↑ and F5 from anywhere in the window; Ctrl+E, Ctrl+F and F3 focus the Search Bar.
+  useBrowseShortcuts(actions, focusSearch);
   return (
     <div className="flex h-full flex-col">
-      <TopBar browse={browse} actions={actions} />
+      <TopBar browse={browse} actions={actions} search={search} searchActions={searchActions} searchInput={searchInput} />
       <FilterBar />
       <EngineBanner visible={bannerVisible} />
 

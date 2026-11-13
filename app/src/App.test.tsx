@@ -11,7 +11,7 @@ const shell = vi.hoisted(() => {
     line: (_line: string) => {},
     state: (_state: string) => {},
   };
-  const sent: { id: string; type: string; path?: string }[] = [];
+  const sent: { id: string; type: string; path?: string; text?: string; folder?: string }[] = [];
   return { handlers, sent };
 });
 
@@ -330,6 +330,132 @@ describe("App", () => {
     expect(opened).toEqual([`${DOCS}\\סיכום ישיבה 3.docx`]);
     expect(shell.sent.length).toBe(sent);
     expect(within(screen.getByRole("main")).getByText("Photos")).toBeTruthy();
+  });
+
+  it("searches the listed folder on Enter only, with a spinner until searchDone", async () => {
+    await readyApp();
+    const bar = () => screen.getByRole<HTMLInputElement>("textbox", { name: t("search.label") });
+    const searches = () => shell.sent.filter((m) => m.type === "search");
+    const icon = () => bar().parentElement!.querySelector("svg")!;
+    const spinning = () => icon().classList.contains("lucide-loader-circle");
+
+    // With no folder listed yet, Enter sends nothing.
+    act(() => fireEvent.change(bar(), { target: { value: "report" } }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    expect(searches()).toEqual([]);
+
+    reply(listingOf(lastRequest("listFolder").id, DOCS, [{ kind: "knownFolder", code: "documents", path: DOCS }]));
+    await flush();
+
+    // Typing sends nothing; blank text sends nothing on Enter.
+    act(() => fireEvent.change(bar(), { target: { value: "   " } }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    act(() => fireEvent.change(bar(), { target: { value: "report" } }));
+    expect(searches()).toEqual([]);
+    expect(icon().getAttribute("aria-hidden")).toBe("true");
+    expect(spinning()).toBe(false);
+    expect(bar().getAttribute("aria-busy")).toBe("false");
+
+    // An Enter that ends an IME composition sends nothing.
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter", isComposing: true }));
+    expect(searches()).toEqual([]);
+    expect(spinning()).toBe(false);
+
+    // Enter sends one search for the listed folder; the spinner replaces the magnifier.
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    // A held Enter's repeats send no more.
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter", repeat: true }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter", repeat: true }));
+    expect(searches()).toEqual([{ id: expect.any(String), type: "search", text: "report", folder: DOCS }]);
+    const id = searches()[0].id;
+    expect(spinning()).toBe(true);
+    expect(icon().getAttribute("aria-hidden")).toBe("true");
+    expect(bar().getAttribute("aria-busy")).toBe("true");
+
+    reply({ id, type: "searchParsed", mode: "normal", dateRange: null, residualText: "report" });
+    reply({ id, type: "nameMatches", matches: [] });
+    expect(spinning()).toBe(true);
+    reply({ id, type: "searchDone", notices: [], indexVersion: null, indexingActive: false });
+    await flush();
+    expect(spinning()).toBe(false);
+    expect(bar().getAttribute("aria-busy")).toBe("false");
+
+    // A second Enter replaces the first; an error reply stops the spinner too.
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    expect(searches()).toHaveLength(3);
+    reply({ id: searches()[1].id, type: "cancelled" });
+    await flush();
+    expect(spinning()).toBe(true);
+    reply({ id: searches()[2].id, type: "error", code: "folderNotFound", data: {} });
+    await flush();
+    expect(spinning()).toBe(false);
+  });
+
+  it("searches nothing while a folder loads or when it can't be listed", async () => {
+    await readyApp();
+    reply(listingOf(lastRequest("listFolder").id, DOCS, [{ kind: "knownFolder", code: "documents", path: DOCS }]));
+    await flush();
+    const bar = () => screen.getByRole<HTMLInputElement>("textbox", { name: t("search.label") });
+    const searches = () => shell.sent.filter((m) => m.type === "search");
+    const enter = () => act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    act(() => fireEvent.change(bar(), { target: { value: "report" } }));
+
+    // Another folder is opening: the listing on screen is the one being left, so Enter waits.
+    act(() => fireEvent.doubleClick(within(screen.getByRole("main")).getByText("Photos")));
+    const photos = `${DOCS}\\Photos`;
+    expect(lastRequest("listFolder").path).toBe(photos);
+    enter();
+    expect(searches()).toEqual([]);
+    reply(
+      listingOf(lastRequest("listFolder").id, photos, [
+        { kind: "knownFolder", code: "documents", path: DOCS },
+        { kind: "folder", name: "Photos", path: photos },
+      ]),
+    );
+    await flush();
+    enter();
+    expect(searches().map((m) => m.folder)).toEqual([photos]);
+
+    // A folder that can't be listed leaves no listing: Enter sends nothing.
+    act(() => fireEvent.doubleClick(within(screen.getByRole("main")).getByText("Photos")));
+    reply({ id: lastRequest("listFolder").id, type: "error", code: "accessDenied", data: {} });
+    await flush();
+    expect(within(screen.getByRole("main")).getByText(t("browse.accessDenied"))).toBeTruthy();
+    enter();
+    expect(searches()).toHaveLength(1);
+  });
+
+  it("clears the Search Bar with ✕ and focuses it with Ctrl+E, Ctrl+F or F3, its text selected", async () => {
+    await readyApp();
+    const bar = () => screen.getByRole<HTMLInputElement>("textbox", { name: t("search.label") });
+    expect(screen.queryByRole("button", { name: t("search.clear") })).toBeNull();
+
+    act(() => fireEvent.change(bar(), { target: { value: "דוח" } }));
+    const clear = screen.getByRole("button", { name: t("search.clear") });
+    expect(clear.getAttribute("title")).toBe(t("search.clear"));
+    act(() => fireEvent.click(clear));
+    expect(bar().value).toBe("");
+    expect(document.activeElement).toBe(bar());
+    expect(screen.queryByRole("button", { name: t("search.clear") })).toBeNull();
+
+    const keys = [
+      { key: "e", code: "KeyE", ctrlKey: true },
+      { key: "f", code: "KeyF", ctrlKey: true },
+      { key: "F3", code: "F3" },
+    ];
+    for (const init of keys) {
+      act(() => fireEvent.change(bar(), { target: { value: "report final" } }));
+      bar().setSelectionRange(0, 0);
+      act(() => (document.activeElement as HTMLElement).blur());
+      expect(document.activeElement).not.toBe(bar());
+      let unprevented = true;
+      act(() => void (unprevented = fireEvent.keyDown(window, init)));
+      expect(unprevented, init.code).toBe(false);
+      expect(document.activeElement).toBe(bar());
+      expect([bar().selectionStart, bar().selectionEnd]).toEqual([0, "report final".length]);
+    }
+    expect(shell.sent.filter((m) => m.type === "search")).toEqual([]);
   });
 });
 

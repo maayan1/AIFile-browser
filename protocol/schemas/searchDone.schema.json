@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SearchDone",
+  "description": "Terminal reply to search: every nameMatches batch has been sent. Codes only; the UI words the notices.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "searchDone" },
+    "notices": { "description": "Notice codes to show with the results; none until Story 2.3.", "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9]*$" } },
+    "indexVersion": { "description": "The Index the results came from; null until content search arrives.", "type": "null" },
+    "indexingActive": { "description": "Whether documents were still being read while the search ran.", "type": "boolean" }
+  },
+  "required": ["id", "type", "notices", "indexVersion", "indexingActive"],
+  "additionalProperties": false
+}

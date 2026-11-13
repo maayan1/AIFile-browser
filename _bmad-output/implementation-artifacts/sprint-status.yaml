@@ -47,8 +47,8 @@ development_status:
   1-9-confirm-the-app-makes-no-network-connections: review  # OPEN: elevated 10-min run (app/scripts/network-check.ps1) + results in docs/network-check.md; NFR-1 wants it before Phase 2 (Epic 2). Deferred by author 2026-11-13.
   epic-1-retrospective: optional
 
-  epic-2: backlog
-  2-1-search-names-in-this-folder-and-its-subfolders: backlog
+  epic-2: in-progress
+  2-1-search-names-in-this-folder-and-its-subfolders: review
   2-2-see-name-results-and-no-matching-files-found: backlog
   2-3-cancel-a-search-and-keep-going-past-folders-i-can-t-open: backlog
   2-4-keep-name-search-fast-in-very-large-folders: backlog

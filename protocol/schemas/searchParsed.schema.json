@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SearchParsed",
+  "description": "First, non-terminal reply to search: how the engine read the text. Name matching uses residualText.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "searchParsed" },
+    "mode": { "description": "How the text is searched; always normal until later epics add modes.", "enum": ["normal"] },
+    "dateRange": { "description": "The date phrase's range; null until date phrases arrive (Epic 6).", "type": "null" },
+    "residualText": { "description": "The text left to match once any date phrase is removed: the trimmed text, as typed.", "type": "string" }
+  },
+  "required": ["id", "type", "mode", "dateRange", "residualText"],
+  "additionalProperties": false
+}

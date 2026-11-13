@@ -50,7 +50,7 @@ def list_folder(fs: FileSystemPort, path: str | None, token: CancelToken) -> dic
             if count % CANCEL_CHECK_EVERY == 0:
                 token.raise_if_cancelled()
             if is_candidate(entry):
-                entries.append(_listed(entry))
+                entries.append(listed_entry(entry))
     except OSError as exc:
         raise FolderUnreadable(exc, place) from exc
     token.raise_if_cancelled()
@@ -139,7 +139,8 @@ def _deepest_known_folder(known: dict[str, str], root: str, names: list[str]) ->
     return best
 
 
-def _listed(entry: FsEntry) -> dict[str, Any]:
+def listed_entry(entry: FsEntry) -> dict[str, Any]:
+    """An entry as folderListing words it (the browse list, and search matches, share it)."""
     modified = _iso_local(entry.mtime_ns)
     if entry.is_dir:
         return {"name": entry.name, "kind": "folder", "modified": modified}

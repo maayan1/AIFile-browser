@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NameMatches",
+  "description": "Non-terminal reply to search, after searchParsed and before searchDone: one batch of files and folders whose name contains the text (at most 200). At least one batch is sent; the last may be empty. Entries use folderListing's entry vocabulary, plus the item's full display path and its containing folder's. Codes and data only; the UI words every type and date.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "nameMatches" },
+    "matches": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "oneOf": [{ "$ref": "#/definitions/folderMatch" }, { "$ref": "#/definitions/fileMatch" }]
+      }
+    }
+  },
+  "required": ["id", "type", "matches"],
+  "additionalProperties": false,
+  "definitions": {
+    "folderMatch": {
+      "title": "FolderMatch",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "const": "folder" },
+        "path": { "description": "The item's full display path.", "type": "string", "minLength": 1 },
+        "folder": { "description": "The containing folder's display path.", "type": "string", "minLength": 1 },
+        "modified": {
+          "description": "Same as folderListing's ModifiedTime: ISO 8601 with the local offset; null when unknown.",
+          "type": ["string", "null"],
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?([+-][0-9]{2}:[0-9]{2}|Z)$"
+        }
+      },
+      "required": ["name", "kind", "path", "folder", "modified"],
+      "additionalProperties": false
+    },
+    "fileMatch": {
+      "title": "FileMatch",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "const": "file" },
+        "typeCode": {
+          "description": "Same codes as folderListing's FileTypeCode.",
+          "enum": ["pdf", "word", "excel", "powerpoint", "text", "markdown", "image", "audio", "video", "archive", "other"]
+        },
+        "path": { "description": "The item's full display path.", "type": "string", "minLength": 1 },
+        "folder": { "description": "The containing folder's display path.", "type": "string", "minLength": 1 },
+        "modified": {
+          "description": "Same as folderListing's ModifiedTime: ISO 8601 with the local offset; null when unknown.",
+          "type": ["string", "null"],
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?([+-][0-9]{2}:[0-9]{2}|Z)$"
+        }
+      },
+      "required": ["name", "kind", "typeCode", "path", "folder", "modified"],
+      "additionalProperties": false
+    }
+  }
+}
