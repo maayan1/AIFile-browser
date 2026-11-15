@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { Info, Search } from "lucide-react";
 import { Fragment, useId, useRef, useState } from "react";
 import { RowMenu, type MenuPosition } from "@/browse/RowMenu";
 import {
@@ -28,16 +28,32 @@ import type { NameMatch, SearchSnapshot } from "./session";
 // mixed names read in their own direction with the extension last and the segments in path order.
 // Rows behave like the browse list's (rows.tsx): ↑/↓/Home/End/Space, Enter or double-click opens
 // (a folder in the app, a file in its default app), the row menu, and Ctrl+Shift+E. A polite live
-// region announces how the search ended.
+// region announces how the search ended. Notices go in a notice-info banner above the header and
+// list (or the empty state), one sentence each: "Search stopped." for a search Esc stopped (which
+// never shows the no-matches empty state, even with nothing found), and the sentence for each of
+// the engine's `searchDone.notices` codes.
 
 /** Between location segments and before the date; outside the isolates, so they never reorder. */
 const SEGMENT_SEPARATOR = " › ";
 const DATE_SEPARATOR = " · ";
 
-// Typed so an outcome code without a sentence fails type-checking.
+// Typed so an outcome or notice code without a sentence fails type-checking.
 const OUTCOMES: Record<NonNullable<SearchDone["outcomeCode"]>, CatalogKey> = {
   noMatches: "search.noMatches",
 };
+const NOTICES: Record<SearchDone["notices"][number], CatalogKey> = {
+  permissionSkipped: "search.permissionSkipped",
+};
+
+/**
+ * The banner's sentences, in order: the search was stopped, or else the engine's notices. A code
+ * this UI has no sentence for (a newer engine's) is skipped.
+ */
+function notices({ stopped, done, error }: SearchSnapshot): CatalogKey[] {
+  if (error) return [];
+  if (stopped) return ["search.stopped"];
+  return [...new Set(done?.notices ?? [])].filter((code) => Object.hasOwn(NOTICES, code)).map((code) => NOTICES[code]);
+}
 
 /** The folders below `root` down to `folder`; null when `folder` isn't in it. */
 function below(root: string, folder: string): string[] | null {
@@ -57,13 +73,46 @@ export function matchLocation(root: Place | null, folder: string): string[] {
   return [...root.segments.map(segmentName), ...rest];
 }
 
-/** What the live region says once a search has finished; nothing while it runs or after an error. */
-function announcement({ done, error, matches }: SearchSnapshot): string {
-  if (!done || error) return "";
+/** How the search ended in words: the outcome, or else the count; nothing for no matches without an outcome. */
+function ending({ done, matches }: SearchSnapshot & { done: SearchDone }): string {
   if (done.outcomeCode) return t(OUTCOMES[done.outcomeCode]);
   if (matches.length === 0) return "";
   if (matches.length === 1) return t("search.announceMatch");
   return t("search.announceMatches", { count: formatCount(matches.length) });
+}
+
+/** `sentences` read as one: each ends with a full stop when there is more than one. */
+function joined(sentences: string[]): string {
+  const said = sentences.filter(Boolean);
+  if (said.length < 2) return said.join("");
+  return said.map((sentence) => (/[.!?…]$/.test(sentence) ? sentence : `${sentence}.`)).join(" ");
+}
+
+/**
+ * What the live region says once a search has ended: "Search stopped." for a stopped one, or else
+ * the outcome or count, then the notices. Nothing while it runs or after an error.
+ */
+function announcement(snapshot: SearchSnapshot): string {
+  const { done, error, stopped } = snapshot;
+  if (error) return "";
+  if (stopped) return t("search.stopped");
+  if (!done) return "";
+  return joined([ending({ ...snapshot, done }), ...notices(snapshot).map((key) => t(key))]);
+}
+
+/** The notice-info banner: a full-width strip, one sentence per line with its info icon. */
+function NoticeBanner({ sentences }: { sentences: CatalogKey[] }) {
+  if (sentences.length === 0) return null;
+  return (
+    <div data-notices="" className="my-2 flex flex-col gap-1 rounded-md bg-notice-info px-3 py-2 text-notice-info-foreground">
+      {sentences.map((key) => (
+        <p key={key} className="flex items-start gap-2">
+          <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+          {t(key)}
+        </p>
+      ))}
+    </div>
+  );
 }
 
 /** An open context menu: the search and row it belongs to, and where it goes. */
@@ -80,7 +129,7 @@ export function ResultList({ snapshot, actions }: { snapshot: SearchSnapshot; ac
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   const list = useRef<HTMLUListElement>(null);
   const headerId = useId();
-  const { parsed, matches, done, error, root } = snapshot;
+  const { parsed, matches, done, error, root, stopped } = snapshot;
   const selected = selection && selection.parsed === parsed ? selection.path : null;
   const tabStop = matches.some((match) => match.path === selected) ? selected : (matches[0]?.path ?? null);
 
@@ -101,7 +150,7 @@ export function ResultList({ snapshot, actions }: { snapshot: SearchSnapshot; ac
   let body = null;
   if (error) {
     body = <FolderErrorState code={error} />;
-  } else if (done?.outcomeCode === "noMatches") {
+  } else if (!stopped && done?.outcomeCode === "noMatches") {
     // The live region below says it; this one stays quiet.
     body = <EmptyState icon={Search} text="search.noMatches" detail="search.tryDifferentWords" announce={false} />;
   } else if (matches.length > 0) {
@@ -135,6 +184,7 @@ export function ResultList({ snapshot, actions }: { snapshot: SearchSnapshot; ac
 
   return (
     <>
+      <NoticeBanner sentences={notices(snapshot)} />
       {body}
       {menu && menu.parsed === parsed && (
         <RowMenu

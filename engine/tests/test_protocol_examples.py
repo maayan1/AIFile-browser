@@ -75,3 +75,35 @@ def test_engine_outcome_codes_are_listed_in_codes_json() -> None:
     from core import search
 
     assert {search.NO_MATCHES} <= outcome_codes()
+
+
+CATALOG = PROTOCOL_DIR.parent / "app" / "src" / "i18n" / "catalog.ts"
+
+
+def notice_codes() -> set[str]:
+    return set(load(PROTOCOL_DIR / "codes.json")["noticeCodes"])
+
+
+def test_every_notice_code_is_listed_in_codes_json_and_has_a_catalog_sentence() -> None:
+    examples = [load(p) for p in EXAMPLES]
+    used = {code for e in examples if e["type"] == "searchDone" for code in e["notices"]}
+    assert used <= notice_codes(), f"notice codes missing from codes.json: {used - notice_codes()}"
+    assert "permissionSkipped" in used  # the code has an example
+    # The schema allows exactly the listed codes.
+    assert set(schema_for("searchDone")["properties"]["notices"]["items"]["enum"]) == notice_codes()
+    # The UI words every notice code from the catalog: `search.<code>`.
+    catalog = CATALOG.read_text(encoding="utf-8")
+    for code in notice_codes():
+        assert f'"search.{code}":' in catalog, code
+
+
+def test_engine_notice_codes_are_listed_in_codes_json() -> None:
+    from core import search
+
+    assert {search.PERMISSION_SKIPPED} <= notice_codes()
+
+
+def test_cancel_has_no_reply_type_of_its_own() -> None:
+    # A cancel shares its target's id; the target's terminal reply answers it.
+    assert "shares its target's id" in schema_for("cancel")["description"]
+    assert load(PROTOCOL_DIR / "examples" / "cancel.json") == {"id": "q1", "type": "cancel"}

@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Cancelled",
-  "description": "Terminal reply to a request that a newer request on the same channel replaced (latest wins, AD-10).",
+  "description": "Terminal reply to a request that a newer request on the same channel replaced (latest wins, AD-10), or that a cancel with its id stopped. It answers the cancel too, which has no reply of its own.",
   "type": "object",
   "properties": {
     "id": { "type": "string", "minLength": 1 },

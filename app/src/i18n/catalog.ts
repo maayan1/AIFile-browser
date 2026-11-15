@@ -13,10 +13,12 @@ export const catalog = {
   "search.label": "Search",
   "search.placeholder": "Search by name, or describe what you remember",
   "search.clear": "Clear search",
-  // The search results. Each searchDone outcome code has a `search.<code>` sentence.
+  // The search results. Each searchDone outcome code and notice code has a `search.<code>` sentence.
   "search.nameMatches": "Name matches ({count})",
   "search.noMatches": "No matching files found",
   "search.tryDifferentWords": "Try different words.",
+  "search.stopped": "Search stopped.",
+  "search.permissionSkipped": "Some folders couldn't be searched because you don't have permission.",
   "search.announceMatches": "{count} name matches found",
   "search.announceMatch": "1 name match found",
   "filter.label": "Filters",

@@ -12,7 +12,9 @@ import { TopBar } from "./TopBar";
 // Only logical properties, so `dir="rtl"` on <html> mirrors it all. It holds the Search Bar's text,
 // because leaving the search view clears it: Esc (window-wide while the view is open), ✕, and every
 // navigation (a folder opened, Show in folder, Back/Forward/Up, the breadcrumb, the nav pane or a
-// typed path). F5 and opening a file stay in the view.
+// typed path). F5 and opening a file stay in the view. Esc while a search runs only stops it: the
+// view, the text and the focus stay, and the next Esc leaves. ✕ and navigation always leave, and
+// leaving cancels a running search first (the search session's `close`).
 
 /** `actions` with each navigation leaving the search view first (`leave`); F5 and opening a file don't. */
 function leavingSearch(actions: BrowseActions, browse: BrowseSnapshot | undefined, leave: () => void): BrowseActions {
@@ -61,13 +63,19 @@ export function AppShell({
     setSearchText("");
     searchActions?.close();
   }, [searchActions]);
-  // Esc: focus in the results (about to go) moves to the Search Bar; focus anywhere else stays.
+  const running = search?.running === true;
+  // Esc: a running search stops and everything stays. Otherwise it leaves: focus in the results
+  // (about to go) moves to the Search Bar; focus anywhere else stays.
   const escape = useCallback(() => {
+    if (running) {
+      searchActions?.cancel();
+      return;
+    }
     const active = document.activeElement;
     const lost = !active || active === document.body || active.closest("main") !== null;
     leaveSearch();
     if (lost) searchInput.current?.focus();
-  }, [leaveSearch]);
+  }, [running, searchActions, leaveSearch]);
   const navigation = useMemo(
     () => (actions && searching ? leavingSearch(actions, browse, leaveSearch) : actions),
     [actions, browse, searching, leaveSearch],

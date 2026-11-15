@@ -559,7 +559,7 @@ describe("App search view", () => {
     expect(bar().value).toBe("");
     expect(document.activeElement).toBe(bar());
     expect(main().getByText("Photos")).toBeTruthy();
-    // Whatever still arrives for the left search is dropped; no cancel is sent (Story 2.3).
+    // Whatever still arrives for the left search is dropped; it had finished, so no cancel is sent.
     reply({ id, type: "nameMatches", matches: [match("late.pdf", DOCS)] });
     await flush();
     expect(inView()).toBe(false);
@@ -576,6 +576,135 @@ describe("App search view", () => {
     expect(inView()).toBe(false);
     expect(bar().value).toBe("");
     expect(document.activeElement).toBe(bar());
+  });
+
+  const banner = () => document.querySelector<HTMLElement>("[data-notices]");
+  const cancels = () => shell.sent.filter((m) => m.type === "cancel");
+
+  it("Esc while a search runs cancels it: the rows, text and focus stay, 'Search stopped.'; Esc again leaves", async () => {
+    await listed();
+    act(() => fireEvent.change(bar(), { target: { value: "report" } }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    const id = lastRequest("search").id;
+    reply({ id, type: "searchParsed", mode: "normal", dateRange: null, residualText: "report" });
+    reply({ id, type: "nameMatches", matches: Array.from({ length: 30 }, (_, i) => match(`report ${i}.pdf`, DOCS)) });
+    await flush();
+    const row = option("report 3.pdf");
+    act(() => row.focus());
+    act(() => void fireEvent.keyDown(row, { key: "Escape" }));
+    // The cancel shares the search's id; the search runs until its reply.
+    expect(cancels()).toEqual([{ id, type: "cancel" }]);
+    expect(inView()).toBe(true);
+    expect(bar().getAttribute("aria-busy")).toBe("true");
+    reply({ id, type: "cancelled" });
+    await flush();
+    expect(bar().getAttribute("aria-busy")).toBe("false");
+    expect(main().getAllByRole("option")).toHaveLength(30);
+    expect(banner()!.textContent).toBe("Search stopped.");
+    expect(main().getByRole("status").textContent).toBe("Search stopped.");
+    expect(bar().value).toBe("report");
+    expect(document.activeElement).toBe(row);
+    expect(main().queryByText(t("search.noMatches"))).toBeNull();
+
+    // The second Esc leaves the view, the text cleared, and sends nothing more.
+    act(() => void fireEvent.keyDown(row, { key: "Escape" }));
+    expect(inView()).toBe(false);
+    expect(bar().value).toBe("");
+    expect(document.activeElement).toBe(bar());
+    expect(cancels()).toHaveLength(1);
+  });
+
+  it("Esc before any match: the banner only, never 'No matching files found'", async () => {
+    await listed();
+    act(() => bar().focus());
+    act(() => fireEvent.change(bar(), { target: { value: "report" } }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    const id = lastRequest("search").id;
+    act(() => void fireEvent.keyDown(bar(), { key: "Escape" }));
+    reply({ id, type: "cancelled" });
+    await flush();
+    expect(inView()).toBe(true);
+    expect(banner()!.textContent).toBe("Search stopped.");
+    expect(main().queryByText(t("search.noMatches"))).toBeNull();
+    expect(main().queryByRole("listbox")).toBeNull();
+    expect(document.activeElement).toBe(bar());
+  });
+
+  it("a new Enter replaces a running search with no cancel, and clears 'Search stopped.'", async () => {
+    await listed();
+    act(() => fireEvent.change(bar(), { target: { value: "report" } }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    const first = lastRequest("search").id;
+    act(() => void fireEvent.keyDown(bar(), { key: "Escape" }));
+    reply({ id: first, type: "cancelled" });
+    await flush();
+    expect(banner()).toBeTruthy();
+
+    act(() => fireEvent.change(bar(), { target: { value: "photo" } }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    const second = lastRequest("search").id;
+    expect(banner()).toBeNull();
+    reply({ id: second, type: "nameMatches", matches: [match("old photo.pdf", DOCS)] });
+    act(() => fireEvent.change(bar(), { target: { value: "budget" } }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    const third = lastRequest("search").id;
+    expect(cancels()).toHaveLength(1); // the engine's latest-wins ends the second
+    reply({ id: second, type: "cancelled" });
+    reply({ id: third, type: "nameMatches", matches: [match("budget.pdf", DOCS)] });
+    reply({ id: third, type: "searchDone", notices: [], indexVersion: null, indexingActive: false });
+    await flush();
+    expect(main().getAllByRole("option").map((o) => o.querySelector("bdi")!.textContent)).toEqual(["budget.pdf"]);
+    expect(banner()).toBeNull();
+    expect(main().getByRole("status").textContent).toBe("1 name match found");
+  });
+
+  it("✕ or a navigation during a search cancels it, leaves, and drops its late replies", async () => {
+    await listed();
+    act(() => fireEvent.change(bar(), { target: { value: "report" } }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    const first = lastRequest("search").id;
+    act(() => fireEvent.click(screen.getByRole("button", { name: t("search.clear") })));
+    expect(cancels()).toEqual([{ id: first, type: "cancel" }]);
+    expect(inView()).toBe(false);
+    reply({ id: first, type: "nameMatches", matches: [match("late.pdf", DOCS)] });
+    reply({ id: first, type: "cancelled" });
+    await flush();
+    expect(inView()).toBe(false);
+
+    act(() => fireEvent.change(bar(), { target: { value: "report" } }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    const second = lastRequest("search").id;
+    const nav = within(screen.getByRole("navigation", { name: t("nav.label") }));
+    act(() => fireEvent.click(nav.getByRole("button", { name: "Local Disk (C:)" })));
+    expect(cancels().at(-1)).toEqual({ id: second, type: "cancel" });
+    expect(inView()).toBe(false);
+    expect(bar().value).toBe("");
+    reply({ id: second, type: "cancelled" });
+    await flush();
+    expect(inView()).toBe(false);
+  });
+
+  it("shows the permission notice above the results, and above the empty state", async () => {
+    await listed();
+    act(() => fireEvent.change(bar(), { target: { value: "report" } }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    let id = lastRequest("search").id;
+    reply({ id, type: "nameMatches", matches: [match("report.pdf", DOCS)] });
+    reply({ id, type: "searchDone", notices: ["permissionSkipped"], indexVersion: null, indexingActive: false });
+    await flush();
+    expect(main().getAllByRole("option")).toHaveLength(1);
+    expect(banner()!.textContent).toBe(t("search.permissionSkipped"));
+    expect(main().getByRole("status").textContent).toBe(`1 name match found. ${t("search.permissionSkipped")}`);
+
+    act(() => fireEvent.change(bar(), { target: { value: "xyz123" } }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    id = lastRequest("search").id;
+    reply({ id, type: "nameMatches", matches: [] });
+    reply({ id, type: "searchDone", outcomeCode: "noMatches", notices: ["permissionSkipped"], indexVersion: null, indexingActive: false });
+    await flush();
+    expect(banner()!.textContent).toBe(t("search.permissionSkipped"));
+    expect(main().getByText(t("search.noMatches"), { selector: "p" })).toBeTruthy();
+    expect(cancels()).toEqual([]);
   });
 
   it("shows the folder's error when the searched folder is gone", async () => {
@@ -604,13 +733,17 @@ describe("App search view", () => {
     expect(inView()).toBe(false);
     expect(document.activeElement).toBe(bar());
 
-    // Esc while the search still runs leaves too (Story 2.3 makes it cancel).
+    // Esc while the search still runs stops it and stays; the next Esc leaves.
     act(() => fireEvent.change(bar(), { target: { value: "photo" } }));
     act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
     expect(inView()).toBe(true);
     act(() => void fireEvent.keyDown(bar(), { key: "Escape" }));
-    expect(inView()).toBe(false);
+    expect(inView()).toBe(true);
+    reply({ id: lastRequest("search").id, type: "cancelled" });
+    await flush();
     expect(bar().getAttribute("aria-busy")).toBe("false");
+    act(() => void fireEvent.keyDown(bar(), { key: "Escape" }));
+    expect(inView()).toBe(false);
 
     // The Esc that closes the path field leaves the view open.
     await searchFor("report", [match("report.pdf", DOCS)]);

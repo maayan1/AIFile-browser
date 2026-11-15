@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Cancel",
+  "description": "Request: stop the running request whose id this is. A cancel shares its target's id and has no reply of its own: the target's terminal reply answers both. The target ends cancelled, unless its terminal reply had already been sent when the cancel arrived. It works on whichever channel's latest request has that id and hasn't ended, as a newer request on that channel would (latest wins, AD-10); an unknown or already-finished id does nothing. The UI sends it for a running search (Esc, or leaving the search view).",
+  "type": "object",
+  "properties": {
+    "id": { "description": "The id of the request to stop.", "type": "string", "minLength": 1 },
+    "type": { "const": "cancel" }
+  },
+  "required": ["id", "type"],
+  "additionalProperties": false
+}

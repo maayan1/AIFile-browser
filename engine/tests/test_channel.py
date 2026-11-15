@@ -314,6 +314,131 @@ def test_a_streaming_handler_that_fails_after_emitting_ends_with_invalid_request
     ch.close()
 
 
+# ----- cancel: a request stopped by its own id (Story 2.3) --------------------------
+
+
+def test_a_cancel_stops_the_running_request_with_cancelled_and_the_channel_keeps_serving() -> None:
+    ch, sent = channel()
+    started, stopped = threading.Event(), threading.Event()
+
+    def checks_token(request: Message, token: CancelToken) -> Message:
+        started.set()
+        while not token.cancelled:
+            time.sleep(0.005)
+        stopped.set()
+        token.raise_if_cancelled()
+        return {"id": request["id"], "type": "pong"}
+
+    ch.submit({"id": "a", "type": "x"}, checks_token)
+    assert started.wait(TIMEOUT)
+    assert ch.cancel("a") is True
+    assert sent.get(timeout=TIMEOUT) == {"id": "a", "type": "cancelled"}
+    assert stopped.is_set()
+    assert ch.abandoned == 0
+    # The cancel has no reply of its own, and a second one for the same id does nothing.
+    assert ch.cancel("a") is False
+    ch.submit({"id": "b", "type": "x"}, reply_with("pong"))
+    assert sent.get(timeout=TIMEOUT) == {"id": "b", "type": "pong"}
+    ch.close()
+    assert sent.empty()
+
+
+def test_a_cancel_for_an_unknown_finished_or_replaced_id_does_nothing() -> None:
+    ch, sent = channel()
+    assert ch.cancel("nothing yet") is False
+    ch.submit({"id": "a", "type": "x"}, reply_with("pong"))
+    assert sent.get(timeout=TIMEOUT) == {"id": "a", "type": "pong"}
+    # The race: the reply was already on its way when the cancel came, so it answers both.
+    assert ch.cancel("a") is False
+    assert ch.cancel("other") is False
+
+    started, release = threading.Event(), threading.Event()
+    ch.submit({"id": "b", "type": "x"}, stuck(started, release))
+    assert started.wait(TIMEOUT)
+    ch.submit({"id": "c", "type": "x"}, reply_with("pong"))  # replaces b
+    assert ch.cancel("b") is False  # no longer the latest: it is cancelled already
+    release.set()
+    assert sent.get(timeout=TIMEOUT) == {"id": "b", "type": "cancelled"}
+    assert sent.get(timeout=TIMEOUT) == {"id": "c", "type": "pong"}
+    ch.close()
+    assert sent.empty()
+
+
+def test_a_cancelled_queued_request_never_runs() -> None:
+    ch, sent = channel()
+    started, release = threading.Event(), threading.Event()
+    ran: list[str] = []
+
+    def recording(request: Message, token: CancelToken) -> Message:
+        ran.append(request["id"])
+        return {"id": request["id"], "type": "pong"}
+
+    try:
+        ch.submit({"id": "a", "type": "x"}, stuck(started, release))
+        assert started.wait(TIMEOUT)
+        ch.submit({"id": "b", "type": "x"}, recording)  # queued behind a; cancels a
+        assert ch.cancel("b") is True
+        assert sent.get(timeout=2) == {"id": "a", "type": "cancelled"}
+        assert sent.get(timeout=2) == {"id": "b", "type": "cancelled"}
+        assert ran == []
+    finally:
+        release.set()
+    ch.close()
+
+
+def test_a_cancelled_request_stuck_in_the_os_is_abandoned_like_a_replaced_one() -> None:
+    ch, sent = channel()
+    started, release = threading.Event(), threading.Event()
+    try:
+        ch.submit({"id": "a", "type": "x"}, stuck(started, release))
+        assert started.wait(TIMEOUT)
+        assert ch.cancel("a") is True
+        assert sent.get(timeout=2) == {"id": "a", "type": "cancelled"}
+        assert ch.abandoned == 1
+        ch.submit({"id": "b", "type": "x"}, reply_with("pong"))
+        assert sent.get(timeout=2) == {"id": "b", "type": "pong"}
+    finally:
+        release.set()
+    deadline = time.monotonic() + TIMEOUT
+    while ch.abandoned and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert ch.abandoned == 0
+    assert sent.empty()  # the stuck thread's own reply is dropped
+    ch.close()
+
+
+def test_a_cancelled_streaming_request_emits_nothing_more() -> None:
+    ch, sent = channel()
+    emitted, release = threading.Event(), threading.Event()
+
+    def streaming(request: Message, token: CancelToken, emit) -> Message:  # type: ignore[no-untyped-def]
+        emit({"id": request["id"], "type": "part"})
+        emitted.set()
+        release.wait(TIMEOUT)
+        emit({"id": request["id"], "type": "late"})  # raises Cancelled
+        return {"id": request["id"], "type": "done"}
+
+    ch.submit({"id": "a", "type": "x"}, streaming, streaming=True)
+    assert emitted.wait(TIMEOUT)
+    assert ch.cancel("a") is True
+    release.set()
+    assert sent.get(timeout=TIMEOUT) == {"id": "a", "type": "part"}
+    assert sent.get(timeout=TIMEOUT) == {"id": "a", "type": "cancelled"}
+    ch.close()
+    assert sent.empty()
+
+
+def test_main_re_exports_the_folder_codes_from_core() -> None:
+    from core import errors
+
+    assert main.folder_error_code is errors.folder_error_code
+    assert (main.FOLDER_NOT_FOUND, main.ACCESS_DENIED, main.FOLDER_UNAVAILABLE) == (
+        "folderNotFound", "accessDenied", "folderUnavailable",
+    )
+    assert main.NOT_FOUND_WINERRORS is errors.NOT_FOUND_WINERRORS
+    assert main.DENIED_WINERRORS is errors.DENIED_WINERRORS
+
+
 class RaisingFs:
     """Resolves every path as given; listing raises `exc` (or resolving does, with `on_resolve`)."""
 
