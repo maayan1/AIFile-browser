@@ -7,8 +7,9 @@ import type { BrowseActions } from "./session";
 // never navigates its own history or reloads the page (which would lose the app's Back history).
 // The keyboard's own Back, Forward and Refresh keys do the same. Alt+← stays Back under rtl, as in
 // File Explorer. Ctrl+E, Ctrl+F and F3 focus the Search Bar (UX-DR5); their default is prevented too, or
-// WebView2 opens its own find bar. Alt+D lives in the breadcrumb; Enter, Shift+F10 and Ctrl+Shift+E
-// on the rows.
+// WebView2 opens its own find bar. While the search view is open, Esc leaves it (2.2), unless
+// something else handled it first (the row menu or the path field closing). Alt+D lives in the
+// breadcrumb; Enter, Shift+F10 and Ctrl+Shift+E on the rows.
 
 export type Shortcut = "back" | "forward" | "up" | "reload" | "search";
 
@@ -40,10 +41,24 @@ export function shortcutFor(event: EventFacts): Shortcut | null {
   return shortcutKey(event);
 }
 
-/** Listens on the window for the browse shortcuts, and Ctrl+E/F and F3 for `focusSearch`, while mounted. */
-export function useBrowseShortcuts(actions?: BrowseActions, focusSearch?: () => void): void {
+/** Whether a keydown is the Esc that leaves the search view: plain, not handled, not in an IME composition. */
+export function leavesSearch(event: EventFacts): boolean {
+  if (event.defaultPrevented || event.isComposing || event.repeat) return false;
+  return event.key === "Escape" && !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey;
+}
+
+/**
+ * Listens on the window for the browse shortcuts, Ctrl+E/F and F3 for `focusSearch`, and Esc for
+ * `leaveSearch` (given only while the search view is open), while mounted.
+ */
+export function useBrowseShortcuts(actions?: BrowseActions, focusSearch?: () => void, leaveSearch?: () => void): void {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (leaveSearch && leavesSearch(event)) {
+        event.preventDefault();
+        leaveSearch();
+        return;
+      }
       if (event.defaultPrevented || !shortcutKey(event)) return;
       const shortcut = shortcutFor(event); // null for a repeat or during an IME composition
       // Stopped even then (a held F5 repeats), or WebView2 reloads the page or opens its find bar.
@@ -60,5 +75,5 @@ export function useBrowseShortcuts(actions?: BrowseActions, focusSearch?: () => 
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [actions, focusSearch]);
+  }, [actions, focusSearch, leaveSearch]);
 }

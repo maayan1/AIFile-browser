@@ -6,6 +6,7 @@
   "properties": {
     "id": { "type": "string", "minLength": 1 },
     "type": { "const": "searchDone" },
+    "outcomeCode": { "description": "How the search ended, when that needs saying: noMatches when it finished having sent no match (EARS-03). Absent otherwise; listed in codes.json outcomeCodes.", "enum": ["noMatches"] },
     "notices": { "description": "Notice codes to show with the results; none until Story 2.3.", "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9]*$" } },
     "indexVersion": { "description": "The Index the results came from; null until content search arrives.", "type": "null" },
     "indexingActive": { "description": "Whether documents were still being read while the search ran.", "type": "boolean" }

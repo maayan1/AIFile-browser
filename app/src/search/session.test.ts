@@ -1,8 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { ProtocolClient, type EngineState, type Transport } from "../protocol/client";
+import type { Place } from "../browse/session";
 import { INITIAL_SEARCH, SearchSession, type SearchSnapshot } from "./session";
 
 const DOCS = "C:\\Users\\dana\\Documents";
+const AT_DOCS: Place = {
+  path: DOCS,
+  parent: "C:\\Users\\dana",
+  segments: [{ kind: "knownFolder", code: "documents", path: DOCS }],
+};
+const AT_GONE: Place = { path: "C:\\gone", parent: "C:\\", segments: [{ kind: "folder", name: "gone", path: "C:\\gone" }] };
+/** The snapshot of a search just sent from Documents. */
+const SENT: SearchSnapshot = { open: true, root: AT_DOCS, running: true, parsed: null, matches: [], done: null, error: null };
 
 /** A shell stand-in: records sent requests, lets the test push lines and state changes. */
 function fakeShell() {
@@ -54,9 +63,9 @@ describe("SearchSession", () => {
   it("sends one search and keeps its replies in order until searchDone", async () => {
     const { shell, session } = await started();
     expect(session.snapshot).toEqual(INITIAL_SEARCH);
-    session.search("report", DOCS);
+    session.search("report", AT_DOCS);
     expect(shell.sent).toEqual([{ type: "search", text: "report", folder: DOCS, id: "q1" }]);
-    expect(session.snapshot).toEqual({ running: true, parsed: null, matches: [], done: null, error: null });
+    expect(session.snapshot).toEqual(SENT);
 
     shell.line(parsed("q1"));
     shell.line(batch("q1", ["report.pdf"]));
@@ -74,24 +83,24 @@ describe("SearchSession", () => {
 
   it("sends nothing for blank text", async () => {
     const { shell, session, seen } = await started();
-    session.search("   ", DOCS);
-    session.search("", DOCS);
+    session.search("   ", AT_DOCS);
+    session.search("", AT_DOCS);
     expect(shell.sent).toEqual([]);
     expect(seen).toEqual([]);
   });
 
   it("keeps only the latest search: a replaced one's late replies are ignored", async () => {
     const { shell, session } = await started();
-    session.search("report", DOCS);
+    session.search("report", AT_DOCS);
     shell.line(parsed("q1"));
     shell.line(batch("q1", ["old.pdf"]));
-    session.search("photo", DOCS);
-    expect(session.snapshot).toEqual({ running: true, parsed: null, matches: [], done: null, error: null });
+    session.search("photo", AT_DOCS);
+    expect(session.snapshot).toEqual(SENT);
     // The engine ends the first with cancelled; a reply racing it changes nothing either.
     shell.line(batch("q1", ["late.pdf"]));
     shell.line({ id: "q1", type: "cancelled" });
     await flush();
-    expect(session.snapshot).toEqual({ running: true, parsed: null, matches: [], done: null, error: null });
+    expect(session.snapshot).toEqual(SENT);
 
     shell.line(parsed("q2", "photo"));
     shell.line(batch("q2", ["photo.pdf"]));
@@ -104,24 +113,24 @@ describe("SearchSession", () => {
 
   it("keeps an error reply's code, with no results", async () => {
     const { shell, session } = await started();
-    session.search("report", "C:\\gone");
+    session.search("report", AT_GONE);
     shell.line({ id: "q1", type: "error", code: "folderNotFound", data: {} });
     await flush();
-    expect(session.snapshot).toEqual({ running: false, parsed: null, matches: [], done: null, error: "folderNotFound" });
+    expect(session.snapshot).toEqual({ ...SENT, root: AT_GONE, running: false, error: "folderNotFound" });
     // A new search starts with no error.
-    session.search("report", DOCS);
+    session.search("report", AT_DOCS);
     expect(session.snapshot.error).toBeNull();
     // A cancel is not an error.
     shell.line({ id: "q2", type: "cancelled" });
     await flush();
-    expect(session.snapshot).toEqual({ running: false, parsed: null, matches: [], done: null, error: null });
+    expect(session.snapshot).toEqual({ ...SENT, running: false });
   });
 
   it("stops running when the engine restarts, without logging an error", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const { shell, session } = await started();
-      session.search("report", DOCS);
+      session.search("report", AT_DOCS);
       shell.line(parsed("q1"));
       shell.state("restarting");
       await flush();
@@ -140,7 +149,7 @@ describe("SearchSession", () => {
       shell.transport.send = async () => {
         throw "engine is not running"; // what the shell's engine_send rejects with
       };
-      session.search("report", DOCS);
+      session.search("report", AT_DOCS);
       expect(session.snapshot.running).toBe(true);
       await flush();
       expect(session.snapshot.running).toBe(false);
@@ -154,7 +163,7 @@ describe("SearchSession", () => {
   it("traces each reply's id and type, never the search text", async () => {
     const trace = vi.fn();
     const { shell, session } = await started(trace);
-    session.search("secret words", DOCS);
+    session.search("secret words", AT_DOCS);
     shell.line(parsed("q1", "secret words"));
     shell.line(batch("q1", ["a.pdf", "b.pdf"]));
     shell.line(done("q1"));
@@ -167,9 +176,68 @@ describe("SearchSession", () => {
     expect(JSON.stringify(trace.mock.calls)).not.toContain("secret");
   });
 
+  it("opens the view with the searched folder's place, and keeps the engine's outcome code", async () => {
+    const { shell, session } = await started();
+    session.search("xyz123", AT_DOCS);
+    expect(session.snapshot).toMatchObject({ open: true, root: AT_DOCS });
+    shell.line(parsed("q1", "xyz123"));
+    shell.line(batch("q1", []));
+    shell.line({ ...done("q1"), outcomeCode: "noMatches" });
+    await flush();
+    expect(session.snapshot).toMatchObject({ open: true, running: false, matches: [] });
+    expect(session.snapshot.done?.outcomeCode).toBe("noMatches");
+  });
+
+  it("keeps the matches so far when a restart ends the search, with no outcome", async () => {
+    const { shell, session } = await started();
+    session.search("report", AT_DOCS);
+    shell.line(parsed("q1"));
+    shell.line(batch("q1", ["report.pdf"]));
+    shell.state("restarting");
+    await flush();
+    expect(session.snapshot).toMatchObject({ open: true, running: false, done: null, error: null });
+    expect(session.snapshot.matches.map((m) => m.name)).toEqual(["report.pdf"]);
+  });
+
+  it("closes the view: back to the first snapshot, and late replies are dropped", async () => {
+    const { shell, session, seen } = await started();
+    session.close(); // nothing open: no change
+    expect(seen).toEqual([]);
+
+    session.search("report", AT_DOCS);
+    shell.line(parsed("q1"));
+    shell.line(batch("q1", ["report.pdf"]));
+    session.close();
+    expect(session.snapshot).toEqual(INITIAL_SEARCH);
+    // No cancel in 2.2: nothing more is sent, and what the engine still sends changes nothing.
+    expect(shell.sent.map((m) => m.type)).toEqual(["search"]);
+    shell.line(batch("q1", ["late.pdf"]));
+    shell.line(done("q1"));
+    await flush();
+    expect(session.snapshot).toEqual(INITIAL_SEARCH);
+
+    // The next search opens the view again.
+    session.search("photo", AT_DOCS);
+    expect(session.snapshot).toEqual(SENT);
+  });
+
+  it("drops a late error or restart of a closed search", async () => {
+    const { shell, session } = await started();
+    session.search("report", AT_GONE);
+    session.close();
+    shell.line({ id: "q1", type: "error", code: "folderNotFound", data: {} });
+    await flush();
+    expect(session.snapshot).toEqual(INITIAL_SEARCH);
+    session.search("report", AT_DOCS);
+    session.close();
+    shell.state("restarting");
+    await flush();
+    expect(session.snapshot).toEqual(INITIAL_SEARCH);
+  });
+
   it("stops notifying once stopped", async () => {
     const { shell, session, seen } = await started();
-    session.search("report", DOCS);
+    session.search("report", AT_DOCS);
     const count = seen.length;
     session.stop();
     shell.line(parsed("q1"));

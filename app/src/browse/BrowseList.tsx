@@ -1,35 +1,11 @@
-import {
-  ChevronDown,
-  ChevronUp,
-  File,
-  FileArchive,
-  FileCode,
-  FileImage,
-  FileMusic,
-  FilePlay,
-  FileSpreadsheet,
-  FileText,
-  Folder,
-  FolderLock,
-  FolderOpen,
-  FolderX,
-  Presentation,
-  type LucideIcon,
-} from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { ChevronDown, ChevronUp, FolderOpen } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { t, type CatalogKey } from "@/i18n/catalog";
-import {
-  displayType,
-  folderErrorKey,
-  formatDate,
-  formatSize,
-  typeLabel,
-  type DisplayType,
-  type Entry,
-} from "@/i18n/format";
+import { displayType, formatDate, formatSize, typeLabel, type Entry } from "@/i18n/format";
 import { cn } from "@/lib/utils";
 import type { FolderListing } from "@/protocol/generated";
 import { RowMenu, type MenuPosition } from "./RowMenu";
+import { EmptyState, FolderErrorState, ICONS, moveTarget, rowContextMenu, rowKeyDown, type MoveKey } from "./rows";
 import { childPath, type BrowseActions, type BrowseSnapshot } from "./session";
 import { DEFAULT_SORT, nextSort, sortEntries, type SortColumn, type SortOrder } from "./sort";
 
@@ -43,22 +19,8 @@ import { DEFAULT_SORT, nextSort, sortEntries, type SortColumn, type SortOrder } 
 // first row; a re-list of the same folder (F5) keeps the selection. After Show in folder the
 // listing names the item to select, and that row is scrolled into view and focused. Names are
 // isolated with <bdi dir="auto"> so a Hebrew or mixed name reads in its own direction with the
-// extension at its end, while the icon stays at the row's start. Logical properties only.
-
-const ICONS: Record<DisplayType, LucideIcon> = {
-  folder: Folder,
-  pdf: FileText,
-  word: FileText,
-  excel: FileSpreadsheet,
-  powerpoint: Presentation,
-  text: FileText,
-  markdown: FileCode,
-  image: FileImage,
-  audio: FileMusic,
-  video: FilePlay,
-  archive: FileArchive,
-  other: File,
-};
+// extension at its end, while the icon stays at the row's start. Logical properties only. The row
+// keys, icons and empty states are shared with the search results (rows.tsx).
 
 const COLUMNS: { column: SortColumn; label: CatalogKey; className: string }[] = [
   { column: "name", label: "column.name", className: "" },
@@ -69,35 +31,12 @@ const COLUMNS: { column: SortColumn; label: CatalogKey; className: string }[] = 
 
 const SKELETON_ROWS = 8;
 
-/** How far a row-anchored menu starts from the row's inline start, past the icon. */
-const MENU_INSET = 24;
-
-/** The keys that move the selection within the list. */
-type MoveKey = "ArrowUp" | "ArrowDown" | "Home" | "End" | " ";
-const MOVE_KEYS: readonly string[] = ["ArrowUp", "ArrowDown", "Home", "End", " "] satisfies MoveKey[];
-
 /** An open context menu: the listing and row it belongs to, and where it goes. */
 interface OpenMenu {
   listing: FolderListing;
   entry: Entry;
   row: HTMLElement;
   position: MenuPosition;
-}
-
-function isRtl(element: HTMLElement): boolean {
-  return element.closest("[dir]")?.getAttribute("dir") === "rtl";
-}
-
-/** At the pointer, for a right click. */
-function atPointer(row: HTMLElement, clientX: number, clientY: number): MenuPosition {
-  return { top: clientY, inlineStart: isRtl(row) ? window.innerWidth - clientX : clientX };
-}
-
-/** Just below the row's start, for Shift+F10 or the Menu key. */
-function atRow(row: HTMLElement): MenuPosition {
-  const box = row.getBoundingClientRect();
-  const start = isRtl(row) ? window.innerWidth - box.right : box.left;
-  return { top: box.bottom, inlineStart: start + MENU_INSET };
 }
 
 export function BrowseList({ snapshot, actions }: { snapshot?: BrowseSnapshot; actions?: BrowseActions }) {
@@ -154,14 +93,7 @@ export function BrowseList({ snapshot, actions }: { snapshot?: BrowseSnapshot; a
 
   /** Selects and focuses the row a ↑/↓/Home/End/Space on `entry`'s row leads to. */
   function move(where: FolderListing, entry: Entry, key: MoveKey) {
-    const index = rows.indexOf(entry);
-    let target = index;
-    if (key === "Home") target = 0;
-    else if (key === "End") target = rows.length - 1;
-    // The first ↑/↓ selects the focused row; after that they move the selection.
-    else if (key !== " " && entry.name === selected) {
-      target = Math.min(Math.max(index + (key === "ArrowDown" ? 1 : -1), 0), rows.length - 1);
-    }
+    const target = moveTarget(rows.indexOf(entry), rows.length, key, entry.name === selected);
     setSelection({ listing: where, name: rows[target].name });
     const row = body.current?.rows[target];
     if (!row) return;
@@ -177,8 +109,7 @@ export function BrowseList({ snapshot, actions }: { snapshot?: BrowseSnapshot; a
 
   // While a new request loads, its skeleton rows replace the previous error.
   if (!listing && snapshot?.error && !snapshot.loading) {
-    const icon = snapshot.error === "accessDenied" ? FolderLock : FolderX;
-    return <EmptyState icon={icon} text={folderErrorKey(snapshot.error)} />;
+    return <FolderErrorState code={snapshot.error} />;
   }
   if (listing && listing.entries.length === 0) {
     return <EmptyState icon={FolderOpen} text="browse.empty" />;
@@ -279,32 +210,6 @@ function Row({
 }) {
   const Icon = ICONS[displayType(entry)];
 
-  function onKeyDown(event: KeyboardEvent<HTMLTableRowElement>) {
-    const plain = !event.altKey && !event.ctrlKey && !event.metaKey;
-    if (event.key === "Enter" && plain && !event.shiftKey) {
-      event.preventDefault();
-      // A held key repeats: open once, not one app window per repeat.
-      if (!event.repeat) onOpen();
-    } else if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey && plain)) {
-      event.preventDefault();
-      onMenu(event.currentTarget, atRow(event.currentTarget));
-    } else if (MOVE_KEYS.includes(event.key) && plain && !event.shiftKey) {
-      // Also keeps the main area from scrolling.
-      event.preventDefault();
-      onMove(event.key as MoveKey);
-    } else if (event.code === "KeyE" && event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey) {
-      event.preventDefault();
-      if (!event.repeat) onShowInFolder();
-    }
-  }
-
-  function onContextMenu(event: MouseEvent<HTMLTableRowElement>) {
-    event.preventDefault();
-    const row = event.currentTarget;
-    // A right click opens at the pointer; a keyboard-made contextmenu event (button 0) at the row.
-    onMenu(row, event.button === 2 ? atPointer(row, event.clientX, event.clientY) : atRow(row));
-  }
-
   return (
     <tr
       aria-selected={selected}
@@ -315,8 +220,8 @@ function Row({
         event.currentTarget.focus();
       }}
       onDoubleClick={onOpen}
-      onKeyDown={onKeyDown}
-      onContextMenu={onContextMenu}
+      onKeyDown={(event) => rowKeyDown(event, { onOpen, onMove, onShowInFolder, onMenu })}
+      onContextMenu={(event) => rowContextMenu(event, onMenu)}
       // Scrolled into view below the sticky header, never under it.
       className={cn("h-row scroll-mt-10 cursor-default", selected ? "bg-selection" : "hover:bg-accent")}
     >
@@ -360,13 +265,4 @@ function SkeletonRows() {
       </td>
     </tr>
   ));
-}
-
-function EmptyState({ icon: Icon, text }: { icon: LucideIcon; text: CatalogKey }) {
-  return (
-    <div role="status" className="flex flex-col items-center gap-3 pt-24 text-center">
-      <Icon aria-hidden="true" strokeWidth={1.5} className="size-11 text-muted-foreground" />
-      <p>{t(text)}</p>
-    </div>
-  );
 }

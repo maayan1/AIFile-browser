@@ -1,5 +1,6 @@
 import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
+import { catalog } from "@/i18n/catalog";
 import { EngineStoppedError, ProtocolClient, type EngineState, type Transport } from "./client";
 
 // Loaded through Vite so the test needs no Node file APIs.
@@ -11,7 +12,7 @@ const examples = import.meta.glob<Record<string, unknown>>("../../../protocol/ex
   eager: true,
   import: "default",
 });
-const codes = import.meta.glob<{ errorCodes: string[] }>("../../../protocol/codes.json", {
+const codes = import.meta.glob<{ errorCodes: string[]; outcomeCodes: string[] }>("../../../protocol/codes.json", {
   eager: true,
   import: "default",
 });
@@ -43,6 +44,20 @@ describe("protocol examples", () => {
     for (const example of Object.values(examples)) {
       if (example.type === "error") expect(listed.has(example.code as string)).toBe(true);
     }
+  });
+
+  it("uses only outcome codes listed in codes.json, each with its catalog sentence", () => {
+    const listed = Object.values(codes)[0].outcomeCodes;
+    const used = Object.values(examples).flatMap((example) => ("outcomeCode" in example ? [example.outcomeCode as string] : []));
+    expect(used).toContain("noMatches");
+    for (const code of used) expect(listed).toContain(code);
+    // The schema allows exactly the listed codes.
+    const searchDone = Object.entries(schemas).find(([file]) => file.endsWith("/searchDone.schema.json"))![1] as {
+      properties: { outcomeCode: { enum: string[] } };
+    };
+    expect([...searchDone.properties.outcomeCode.enum].sort()).toEqual([...listed].sort());
+    // The UI words every outcome code from the catalog: `search.<code>`.
+    for (const code of listed) expect(Object.hasOwn(catalog, `search.${code}`), code).toBe(true);
   });
 });
 

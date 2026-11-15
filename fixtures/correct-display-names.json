@@ -1,0 +1,17 @@
+{
+  "description": "Correct Display test names (synthetic). Each entry is an item `name` of `kind` file or folder, inside the folders `segments` below the folder searched. Every name contains a dot, so searching '.' finds them all, and no segment does.",
+  "entries": [
+    { "segments": [], "name": "סיכום ישיבה 3.docx", "kind": "file" },
+    { "segments": [], "name": "Budget תקציב 2025.pdf", "kind": "file" },
+    { "segments": [], "name": "notes 2025-10-14.md", "kind": "file" },
+    { "segments": ["Documents"], "name": "Meeting notes (draft).txt", "kind": "file" },
+    { "segments": ["Documents"], "name": "תמונות 2024.10", "kind": "folder" },
+    { "segments": ["Documents", "התנדבות"], "name": "דוח [טיוטה] 2.pdf", "kind": "file" },
+    { "segments": ["Documents", "התנדבות"], "name": "מצגת 100% סופי.pptx", "kind": "file" },
+    { "segments": ["Documents", "התנדבות", "Q3"], "name": "report (final) דוח.docx", "kind": "file" },
+    { "segments": ["Documents", "התנדבות", "Q3"], "name": "רשימה (1).xlsx", "kind": "file" },
+    { "segments": ["פרויקט Acme"], "name": "Acme חוזה v2.1.docx", "kind": "file" },
+    { "segments": ["פרויקט Acme", "2024 דוחות"], "name": "תמונה 12.jpg", "kind": "file" },
+    { "segments": ["Archive [old]"], "name": "גיבוי 3.zip", "kind": "file" }
+  ]
+}

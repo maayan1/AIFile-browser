@@ -494,3 +494,263 @@ function listingOf(id: string, path: string, segments: object[]) {
     ],
   };
 }
+
+describe("App search view", () => {
+  const docsSegments = [{ kind: "knownFolder", code: "documents", path: DOCS }];
+  const bar = () => screen.getByRole<HTMLInputElement>("textbox", { name: t("search.label") });
+  const main = () => within(screen.getByRole("main"));
+  const option = (name: string) => main().getAllByRole("option").find((o) => o.querySelector("bdi")!.textContent === name)!;
+  const inView = () => main().queryByRole("table") === null;
+  const match = (name: string, folder: string, kind: "file" | "folder" = "file") =>
+    kind === "folder"
+      ? { name, kind, path: `${folder}\\${name}`, folder, modified: null }
+      : { name, kind, typeCode: "pdf", path: `${folder}\\${name}`, folder, modified: "2025-10-14T12:00:00+00:00" };
+
+  async function listed() {
+    await readyApp();
+    reply(listingOf(lastRequest("listFolder").id, DOCS, docsSegments));
+    reply({
+      id: lastRequest("listLocations").id,
+      type: "locations",
+      knownFolders: [{ code: "documents", path: DOCS }],
+      drives: [{ letter: "C", label: null, path: "C:\\" }],
+    });
+    await flush();
+  }
+
+  /** Types `text`, presses Enter and answers with `matches` (and the engine's outcome). */
+  async function searchFor(text: string, matches: object[], outcomeCode?: string) {
+    act(() => fireEvent.change(bar(), { target: { value: text } }));
+    const sent = shell.sent.filter((m) => m.type === "search").length;
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    expect(shell.sent.filter((m) => m.type === "search")).toHaveLength(sent + 1);
+    expect(inView()).toBe(true);
+    const id = lastRequest("search").id;
+    reply({ id, type: "searchParsed", mode: "normal", dateRange: null, residualText: text });
+    reply({ id, type: "nameMatches", matches });
+    reply({ id, type: "searchDone", ...(outcomeCode ? { outcomeCode } : {}), notices: [], indexVersion: null, indexingActive: false });
+    await flush();
+    return id;
+  }
+
+  it("shows the results on Enter, and Esc or ✕ go back to the folder with the text cleared", async () => {
+    await listed();
+    expect(inView()).toBe(false);
+    const volunteering = `${DOCS}\\Volunteering`;
+    act(() => fireEvent.change(bar(), { target: { value: "report" } }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    // The view opens at once; nothing to show until matches arrive.
+    expect(inView()).toBe(true);
+    expect(main().queryByRole("listbox")).toBeNull();
+    const id = lastRequest("search").id;
+    reply({ id, type: "searchParsed", mode: "normal", dateRange: null, residualText: "report" });
+    reply({ id, type: "nameMatches", matches: [match("report.pdf", DOCS), match("report-final.docx", volunteering)] });
+    expect(main().getByRole("heading", { name: "Name matches (2)" })).toBeTruthy();
+    expect(main().getByRole("status").textContent).toBe(""); // still running
+    reply({ id, type: "searchDone", notices: [], indexVersion: null, indexingActive: false });
+    await flush();
+    expect(main().getByRole("status").textContent).toBe("2 name matches found");
+    expect(option("report-final.docx").querySelector("p")!.textContent).toBe("Documents › Volunteering · Oct 14, 2025");
+
+    // Esc from the Search Bar: the folder again, the text cleared, focus kept.
+    act(() => bar().focus());
+    expect(fireEvent.keyDown(bar(), { key: "Escape" })).toBe(false);
+    expect(inView()).toBe(false);
+    expect(bar().value).toBe("");
+    expect(document.activeElement).toBe(bar());
+    expect(main().getByText("Photos")).toBeTruthy();
+    // Whatever still arrives for the left search is dropped; no cancel is sent (Story 2.3).
+    reply({ id, type: "nameMatches", matches: [match("late.pdf", DOCS)] });
+    await flush();
+    expect(inView()).toBe(false);
+    expect(shell.sent.some((m) => m.type === "cancel")).toBe(false);
+    // Esc with the view closed does nothing.
+    expect(fireEvent.keyDown(bar(), { key: "Escape" })).toBe(true);
+
+    // EARS-03, then ✕.
+    await searchFor("xyz123", [], "noMatches");
+    expect(main().getByText(t("search.noMatches"), { selector: "p" })).toBeTruthy();
+    expect(main().getByText(t("search.tryDifferentWords"))).toBeTruthy();
+    expect(main().getByRole("status").textContent).toBe("No matching files found");
+    act(() => fireEvent.click(screen.getByRole("button", { name: t("search.clear") })));
+    expect(inView()).toBe(false);
+    expect(bar().value).toBe("");
+    expect(document.activeElement).toBe(bar());
+  });
+
+  it("shows the folder's error when the searched folder is gone", async () => {
+    await listed();
+    act(() => fireEvent.change(bar(), { target: { value: "report" } }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    reply({ id: lastRequest("search").id, type: "error", code: "folderNotFound", data: {} });
+    await flush();
+    expect(inView()).toBe(true);
+    expect(main().getByText(t("browse.folderNotFound"))).toBeTruthy();
+    expect(main().queryByText(t("search.noMatches"))).toBeNull();
+  });
+
+  it("leaves with Esc from a row (focus to the Search Bar), but Esc in the row menu only closes it", async () => {
+    await listed();
+    await searchFor("report", [match("report.pdf", DOCS)]);
+    const row = option("report.pdf");
+    act(() => row.focus());
+    act(() => void fireEvent.keyDown(row, { key: "F10", shiftKey: true }));
+    expect(screen.getByRole("menu")).toBeTruthy();
+    act(() => void fireEvent.keyDown(document.activeElement!, { key: "Escape" }));
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(inView()).toBe(true);
+    expect(document.activeElement).toBe(row);
+    act(() => void fireEvent.keyDown(row, { key: "Escape" }));
+    expect(inView()).toBe(false);
+    expect(document.activeElement).toBe(bar());
+
+    // Esc while the search still runs leaves too (Story 2.3 makes it cancel).
+    act(() => fireEvent.change(bar(), { target: { value: "photo" } }));
+    act(() => void fireEvent.keyDown(bar(), { key: "Enter" }));
+    expect(inView()).toBe(true);
+    act(() => void fireEvent.keyDown(bar(), { key: "Escape" }));
+    expect(inView()).toBe(false);
+    expect(bar().getAttribute("aria-busy")).toBe("false");
+
+    // The Esc that closes the path field leaves the view open.
+    await searchFor("report", [match("report.pdf", DOCS)]);
+    act(() => fireEvent.keyDown(window, { key: "d", code: "KeyD", altKey: true }));
+    const field = screen.getByRole("textbox", { name: t("breadcrumb.field") });
+    act(() => void fireEvent.keyDown(field, { key: "Escape" }));
+    expect(screen.queryByRole("textbox", { name: t("breadcrumb.field") })).toBeNull();
+    expect(inView()).toBe(true);
+  });
+
+  it("stays in the view for F5 and opening a file; any navigation leaves it", async () => {
+    await listed();
+    const projects = `${DOCS}\\Projects`;
+    const work = `${DOCS}\\Work`;
+    const results = [match("Acme", projects, "folder"), match("report.pdf", work)];
+    await searchFor("a", results);
+
+    // Opening a file, and F5: still searching.
+    act(() => void fireEvent.keyDown(option("report.pdf"), { key: "Enter" }));
+    await flush();
+    expect(opened).toEqual([`${work}\\report.pdf`]);
+    const lists = shell.sent.filter((m) => m.type === "listFolder").length;
+    act(() => void fireEvent.keyDown(window, { key: "F5" }));
+    expect(shell.sent.filter((m) => m.type === "listFolder")).toHaveLength(lists + 1);
+    reply(listingOf(lastRequest("listFolder").id, DOCS, docsSegments));
+    await flush();
+    expect(inView()).toBe(true);
+    expect(bar().value).toBe("a");
+
+    // A folder row opens that folder: the browse view, the text cleared.
+    act(() => void fireEvent.keyDown(option("Acme"), { key: "Enter" }));
+    expect(lastRequest("listFolder").path).toBe(`${projects}\\Acme`);
+    expect(inView()).toBe(false);
+    expect(bar().value).toBe("");
+    reply(
+      listingOf(lastRequest("listFolder").id, `${projects}\\Acme`, [
+        ...docsSegments,
+        { kind: "folder", name: "Projects", path: projects },
+        { kind: "folder", name: "Acme", path: `${projects}\\Acme` },
+      ]),
+    );
+    await flush();
+
+    // Show in folder: the browse view of its folder with the file selected.
+    await searchFor("a", results);
+    act(() => void fireEvent.keyDown(option("report.pdf"), { key: "E", code: "KeyE", ctrlKey: true, shiftKey: true }));
+    const show = lastRequest("showInFolder");
+    expect(show.path).toBe(`${work}\\report.pdf`);
+    expect(inView()).toBe(false);
+    reply({
+      ...listingOf(show.id, work, [...docsSegments, { kind: "folder", name: "Work", path: work }]),
+      entries: [{ name: "report.pdf", kind: "file", typeCode: "pdf", size: 1, modified: null }],
+      selected: "report.pdf",
+    });
+    await flush();
+    expect(main().getByText("report.pdf").closest("tr")!.getAttribute("aria-selected")).toBe("true");
+
+    // The nav pane, Back and the breadcrumb leave it too.
+    await searchFor("a", results);
+    const nav = within(screen.getByRole("navigation", { name: t("nav.label") }));
+    act(() => fireEvent.click(nav.getByRole("button", { name: "Local Disk (C:)" })));
+    expect(lastRequest("listFolder").path).toBe("C:\\");
+    expect(inView()).toBe(false);
+    reply({ ...listingOf(lastRequest("listFolder").id, "C:\\", [{ kind: "drive", letter: "C", label: null, path: "C:\\" }]), parent: null });
+    await flush();
+
+    await searchFor("a", results);
+    act(() => fireEvent.click(screen.getByRole("button", { name: t("topBar.back") })));
+    expect(lastRequest("listFolder").path).toBe(work);
+    expect(inView()).toBe(false);
+    reply(listingOf(lastRequest("listFolder").id, work, [...docsSegments, { kind: "folder", name: "Work", path: work }]));
+    await flush();
+
+    await searchFor("a", results);
+    const crumbs = within(screen.getByRole("group", { name: t("breadcrumb.label") }));
+    act(() => fireEvent.click(crumbs.getByRole("button", { name: "Documents" })));
+    expect(lastRequest("listFolder").path).toBe(DOCS);
+    expect(inView()).toBe(false);
+    expect(bar().value).toBe("");
+  });
+
+  it("leaves on Up, Forward and a typed path, but not on Back or Forward with nowhere to go", async () => {
+    await listed();
+    const dana = "C:\\Users\\dana";
+    const results = [match("report.pdf", DOCS)];
+    const lists = () => shell.sent.filter((m) => m.type === "listFolder").length;
+    const leftFor = (path: string) => {
+      expect(lastRequest("listFolder").path).toBe(path);
+      expect(inView()).toBe(false);
+      expect(bar().value).toBe("");
+    };
+
+    // No history yet: Alt+← and Alt+→ go nowhere, so the view and its text stay.
+    await searchFor("a", results);
+    const before = lists();
+    act(() => void fireEvent.keyDown(window, { key: "ArrowLeft", altKey: true }));
+    act(() => void fireEvent.keyDown(window, { key: "ArrowRight", altKey: true }));
+    expect(lists()).toBe(before);
+    expect(inView()).toBe(true);
+    expect(bar().value).toBe("a");
+
+    // Alt+↑ goes up a folder.
+    act(() => void fireEvent.keyDown(window, { key: "ArrowUp", altKey: true }));
+    leftFor(dana);
+    reply(listingOf(lastRequest("listFolder").id, dana, [{ kind: "folder", name: "dana", path: dana }]));
+    await flush();
+
+    // The Up button.
+    await searchFor("a", results);
+    act(() => fireEvent.click(screen.getByRole("button", { name: t("topBar.up") })));
+    leftFor("C:\\Users");
+    reply(listingOf(lastRequest("listFolder").id, "C:\\Users", [{ kind: "folder", name: "Users", path: "C:\\Users" }]));
+    await flush();
+
+    // Back (without searching), then Forward from the search view.
+    act(() => fireEvent.click(screen.getByRole("button", { name: t("topBar.back") })));
+    reply(listingOf(lastRequest("listFolder").id, dana, [{ kind: "folder", name: "dana", path: dana }]));
+    await flush();
+    await searchFor("a", results);
+    act(() => fireEvent.click(screen.getByRole("button", { name: t("topBar.forward") })));
+    leftFor("C:\\Users");
+    reply(listingOf(lastRequest("listFolder").id, "C:\\Users", [{ kind: "folder", name: "Users", path: "C:\\Users" }]));
+    await flush();
+
+    // Alt+→ with history to go to.
+    act(() => fireEvent.click(screen.getByRole("button", { name: t("topBar.back") })));
+    reply(listingOf(lastRequest("listFolder").id, dana, [{ kind: "folder", name: "dana", path: dana }]));
+    await flush();
+    await searchFor("a", results);
+    act(() => void fireEvent.keyDown(window, { key: "ArrowRight", altKey: true }));
+    leftFor("C:\\Users");
+    reply(listingOf(lastRequest("listFolder").id, "C:\\Users", [{ kind: "folder", name: "Users", path: "C:\\Users" }]));
+    await flush();
+
+    // A typed path: Alt+D, the path and Enter.
+    await searchFor("a", results);
+    act(() => fireEvent.keyDown(window, { key: "d", code: "KeyD", altKey: true }));
+    const field = screen.getByRole("textbox", { name: t("breadcrumb.field") });
+    act(() => fireEvent.change(field, { target: { value: "C:\\Work" } }));
+    act(() => void fireEvent.keyDown(field, { key: "Enter" }));
+    leftFor("C:\\Work");
+  });
+});

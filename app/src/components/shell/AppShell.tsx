@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { BrowseActions, BrowseSnapshot } from "@/browse/session";
 import { useBrowseShortcuts } from "@/browse/shortcuts";
 import type { SearchActions, SearchSnapshot } from "@/search/session";
@@ -9,7 +9,31 @@ import { TopBar } from "./TopBar";
 
 // The main window frame (UX-DR4), laid out like File Explorer. DOM order is the tab order:
 // top bar → filter bar → nav pane → main list → Preview Panel → status bar (UX-DR22).
-// Only logical properties, so `dir="rtl"` on <html> mirrors it all.
+// Only logical properties, so `dir="rtl"` on <html> mirrors it all. It holds the Search Bar's text,
+// because leaving the search view clears it: Esc (window-wide while the view is open), ✕, and every
+// navigation (a folder opened, Show in folder, Back/Forward/Up, the breadcrumb, the nav pane or a
+// typed path). F5 and opening a file stay in the view.
+
+/** `actions` with each navigation leaving the search view first (`leave`); F5 and opening a file don't. */
+function leavingSearch(actions: BrowseActions, browse: BrowseSnapshot | undefined, leave: () => void): BrowseActions {
+  const leaving = (navigate: () => void) => {
+    leave();
+    navigate();
+  };
+  return {
+    open: (path) => leaving(() => actions.open(path)),
+    openTyped: (path) => leaving(() => actions.openTyped(path)),
+    showInFolder: (path) => leaving(() => actions.showInFolder(path)),
+    // Alt+←/→/↑ with nowhere to go navigate nowhere, so they stay in the view.
+    back: () => (browse?.canBack ? leaving(() => actions.back()) : actions.back()),
+    forward: () => (browse?.canForward ? leaving(() => actions.forward()) : actions.forward()),
+    up: () => (browse?.place?.parent ? leaving(() => actions.up()) : actions.up()),
+    openFile: (path) => actions.openFile(path),
+    reload: () => actions.reload(),
+    clearPathError: () => actions.clearPathError(),
+  };
+}
+
 export function AppShell({
   bannerVisible,
   browse,
@@ -26,22 +50,48 @@ export function AppShell({
   searchActions?: SearchActions;
 }) {
   const searchInput = useRef<HTMLInputElement>(null);
+  const [searchText, setSearchText] = useState("");
+  const searching = search?.open === true;
   // Focused with its text selected, so typing replaces the last search (as in File Explorer).
   const focusSearch = useCallback(() => {
     searchInput.current?.focus();
     searchInput.current?.select();
   }, []);
+  const leaveSearch = useCallback(() => {
+    setSearchText("");
+    searchActions?.close();
+  }, [searchActions]);
+  // Esc: focus in the results (about to go) moves to the Search Bar; focus anywhere else stays.
+  const escape = useCallback(() => {
+    const active = document.activeElement;
+    const lost = !active || active === document.body || active.closest("main") !== null;
+    leaveSearch();
+    if (lost) searchInput.current?.focus();
+  }, [leaveSearch]);
+  const navigation = useMemo(
+    () => (actions && searching ? leavingSearch(actions, browse, leaveSearch) : actions),
+    [actions, browse, searching, leaveSearch],
+  );
   // Alt+←/→/↑ and F5 from anywhere in the window; Ctrl+E, Ctrl+F and F3 focus the Search Bar.
-  useBrowseShortcuts(actions, focusSearch);
+  useBrowseShortcuts(navigation, focusSearch, searching ? escape : undefined);
   return (
     <div className="flex h-full flex-col">
-      <TopBar browse={browse} actions={actions} search={search} searchActions={searchActions} searchInput={searchInput} />
+      <TopBar
+        browse={browse}
+        actions={navigation}
+        search={search}
+        searchActions={searchActions}
+        searchInput={searchInput}
+        searchText={searchText}
+        onSearchText={setSearchText}
+        onClearSearch={leaveSearch}
+      />
       <FilterBar />
       <EngineBanner visible={bannerVisible} />
 
       <div className="flex min-h-0 flex-1">
-        <NavPane browse={browse} actions={actions} />
-        <MainArea browse={browse} actions={actions} />
+        <NavPane browse={browse} actions={navigation} />
+        <MainArea browse={browse} actions={navigation} search={search} />
         <PreviewPanel />
       </div>
 

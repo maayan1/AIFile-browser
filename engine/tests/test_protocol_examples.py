@@ -56,3 +56,22 @@ def test_engine_error_codes_are_listed_in_codes_json() -> None:
     codes = set(load(PROTOCOL_DIR / "codes.json")["errorCodes"])
     assert {stdio_transport.UNKNOWN_REQUEST, stdio_transport.INVALID_REQUEST} <= codes
     assert {main.FOLDER_NOT_FOUND, main.ACCESS_DENIED, main.FOLDER_UNAVAILABLE} <= codes
+
+
+def outcome_codes() -> set[str]:
+    return set(load(PROTOCOL_DIR / "codes.json")["outcomeCodes"])
+
+
+def test_every_outcome_code_is_listed_in_codes_json() -> None:
+    examples = [load(p) for p in EXAMPLES]
+    used = {e["outcomeCode"] for e in examples if "outcomeCode" in e}
+    assert used <= outcome_codes(), f"outcome codes missing from codes.json: {used - outcome_codes()}"
+    assert "noMatches" in used  # the code has an example
+    # The schema allows exactly the listed codes.
+    assert set(schema_for("searchDone")["properties"]["outcomeCode"]["enum"]) == outcome_codes()
+
+
+def test_engine_outcome_codes_are_listed_in_codes_json() -> None:
+    from core import search
+
+    assert {search.NO_MATCHES} <= outcome_codes()

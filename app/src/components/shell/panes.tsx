@@ -4,9 +4,12 @@ import type { BrowseActions, BrowseSnapshot } from "@/browse/session";
 import { t, type CatalogKey } from "@/i18n/catalog";
 import { driveName, knownFolderName } from "@/i18n/format";
 import { cn } from "@/lib/utils";
+import { ResultList } from "@/search/ResultList";
+import type { SearchSnapshot } from "@/search/session";
 
-// The four content areas of the window. The main list shows the browse list (1.4) and the nav pane
-// the places to go (1.5); preview arrives in Epic 4 and status text in Epic 3.
+// The four content areas of the window. The main list shows the browse list (1.4), or the search
+// results while the search view is open (2.2), and the nav pane the places to go (1.5); preview
+// arrives in Epic 4 and status text in Epic 3.
 // Only logical properties (border-e/-s), so `dir="rtl"` mirrors them.
 
 interface NavEntry {
@@ -77,16 +80,30 @@ function NavGroup({ heading, entries, onOpen }: { heading: CatalogKey; entries: 
 
 // No top padding: the list's sticky header sits flush with the top of the scrolling area.
 // Each folder opens scrolled to its top; a re-list of the same folder keeps the position. A layout
-// effect, so it runs before the list scrolls a Show in folder row into view.
-export function MainArea({ browse, actions }: { browse?: BrowseSnapshot; actions?: BrowseActions }) {
+// effect, so it runs before the list scrolls a Show in folder row into view. Opening and leaving
+// the search view scroll to the top too. The browse list stays mounted (hidden) under the search
+// view, so its sort order and selection are still there when the view closes.
+export function MainArea({
+  browse,
+  actions,
+  search,
+}: {
+  browse?: BrowseSnapshot;
+  actions?: BrowseActions;
+  search?: SearchSnapshot;
+}) {
   const scroller = useRef<HTMLElement>(null);
   const location = browse?.location ?? null;
+  const searching = search?.open === true;
   useLayoutEffect(() => {
     if (scroller.current) scroller.current.scrollTop = 0;
-  }, [location]);
+  }, [location, searching]);
   return (
     <main ref={scroller} aria-label={t("main.label")} className="min-w-0 flex-1 overflow-auto bg-background px-4">
-      <BrowseList snapshot={browse} actions={actions} />
+      <div hidden={searching}>
+        <BrowseList snapshot={browse} actions={actions} />
+      </div>
+      {search?.open && <ResultList snapshot={search} actions={actions} />}
     </main>
   );
 }
