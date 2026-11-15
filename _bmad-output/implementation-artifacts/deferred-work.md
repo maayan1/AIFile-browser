@@ -90,3 +90,12 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-1-search-names-in-this-folder-and-its-subfolders.md`
   summary: Re-target the Story 1.4 item "split an oversized `folderListing` into several replies on the same id". Multi-message replies now exist (`Channel` `emit`, `ProtocolClient.stream`), so the split can reuse them.
   evidence: the 1.4 entry said multi-message replies "arrive with search, which is the natural time to add both together"; Story 2.1 added the streaming path but kept `folderListing` single-reply.
+
+## Deferred from: code review of spec-2-1-search-names-in-this-folder-and-its-subfolders.md (2026-11-15)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-search-names-in-this-folder-and-its-subfolders.md`
+  summary: Same CRLF item as the 2.1 build entry above; review 2 notes that the `.gitattributes` fix is not a Rust change, so it can land any time (renormalize `engine.rs` once).
+  evidence: AC2's `cargo test` passes only on the hand-fixed LF working copy; `git status` still shows `M app/src-tauri/src/engine.rs` with an empty `git diff --stat`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-search-names-in-this-folder-and-its-subfolders.md`
+  summary: Story 1.9's elevated 10-min network run (`app/scripts/network-check.ps1`, results in `docs/network-check.md`) is still open while Epic 2 is under way; NFR-1 wants it before Phase 2.
+  evidence: `sprint-status.yaml` comment on `1-9-confirm-the-app-makes-no-network-connections`, deferred by the author 2026-11-13.

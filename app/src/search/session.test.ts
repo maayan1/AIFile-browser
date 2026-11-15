@@ -133,6 +133,24 @@ describe("SearchSession", () => {
     }
   });
 
+  it("stops running and logs when the request can't be sent", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { shell, session } = await started();
+      shell.transport.send = async () => {
+        throw "engine is not running"; // what the shell's engine_send rejects with
+      };
+      session.search("report", DOCS);
+      expect(session.snapshot.running).toBe(true);
+      await flush();
+      expect(session.snapshot.running).toBe(false);
+      expect(session.snapshot.done).toBeNull();
+      expect(error).toHaveBeenCalledWith("search request failed", "engine is not running");
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   it("traces each reply's id and type, never the search text", async () => {
     const trace = vi.fn();
     const { shell, session } = await started(trace);

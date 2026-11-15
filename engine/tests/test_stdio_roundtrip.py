@@ -540,8 +540,12 @@ def test_search_finds_names_in_the_folder_and_its_subfolders(engine: Engine, tmp
 
 
 def test_search_in_a_missing_folder_is_folder_not_found(engine: Engine, tmp_path: Path) -> None:
-    engine.send({"id": "q4", "type": "search", "text": "report", "folder": str(tmp_path / "gone")})
+    engine.send({"id": "q4", "type": "search", "text": "secret-words", "folder": str(tmp_path / "gone")})
     assert engine.read() == {"id": "q4", "type": "error", "code": "folderNotFound", "data": {}}
+    assert engine.close() == 0
+    log_text = (tmp_path / "engine.log").read_text(encoding="utf-8")
+    assert "search: folderNotFound" in log_text  # the folder-error path did log
+    assert "secret-words" not in log_text  # and the search text is never logged
 
 
 def test_search_with_blank_text_is_invalid(engine: Engine, tmp_path: Path) -> None:

@@ -76,6 +76,34 @@ context:
 - Given `tauri dev`, when I type in the Search Bar, then nothing is sent. When I press Enter, the spinner shows until `searchDone`, and the dev console shows the reply sequence for the id.
 - Given `npm test`, `npm run typecheck`, `uv run pytest`, `cargo test` and the Pester suite, when run, then all pass, including `test_no_network.py` and `network-rules.test.ts`.
 
+### Review Findings
+
+Review 2, 2026-11-15 (blind-hunter, edge-case-hunter, verification-gap, acceptance-auditor):
+
+- [x] [Review][Patch] `search.schema.json` says a bad root gets "the folder error listFolder would send", but search errors carry empty `data` (as `error.schema.json` and `search_handler` say). Story 2.2 would expect place data that never comes [protocol/schemas/search.schema.json:4] (acceptance-auditor+blind-hunter, low)
+- [x] [Review][Patch] No test covers the spinner stopping when a search request can't be sent (a plain rejection, not `EngineStoppedError`): moving `running: false` inside the restart check would go unnoticed [app/src/search/session.ts:80-86] (verification-gap, medium)
+- [x] [Review][Patch] The "search text is never logged" check never runs on the folder-error path, the handler's only search log call [engine/main.py:147, engine/tests/test_stdio_roundtrip.py] (verification-gap, medium)
+- [x] [Review][Defer] `cargo test` fails on a CRLF checkout of `engine.rs`, so AC2 holds only on a hand-fixed working copy [app/src-tauri/src/engine.rs] — deferred: pre-existing, already in deferred-work.md. Note: the fix (`.gitattributes`) is not a Rust change, so 2.1's "No Rust changes" rule doesn't block it (blind-hunter+acceptance-auditor)
+- [x] [Review][Defer] Epic 2 began with Story 1.9's elevated 10-min network run still open, which NFR-1 wants before Phase 2 [_bmad-output/implementation-artifacts/sprint-status.yaml] — deferred: pre-existing, tracked on Story 1.9 (acceptance-auditor)
+
+After the patches (2026-11-15): `npm test` 286 passed, `npm run typecheck` clean, `uv run pytest` 265 passed. No Rust or script changes, so `cargo test` and Pester weren't rerun. AC1 (`tauri dev`) is still a manual check.
+
+Rejected:
+- `low` A replaced search can end with `searchDone` if the cancel lands between `_reply`'s token check and `_send`. The reply was already complete, the window is the same for every channel (pre-existing), and the UI ignores replies for a replaced id. (blind-hunter)
+- `low` Enter during F5 of the same folder is dropped, since `loading` hides the folder. Refreshes are short, and telling "stay" apart needs a new snapshot field. (blind-hunter)
+- `low` Hebrew final letters, niqqud and bidi marks in names aren't folded. Partial words ending in a final letter, or names with marks, are rare; folding is a matching decision for a later story. (blind-hunter)
+- `low` The `typeCode` enum and the `modified` pattern are copied into `nameMatches.schema.json` rather than referenced. Validating test runs catch a drift. (blind-hunter)
+- `low` `request()` accepts `search` and `Reply` includes `SearchDone`. The app only searches through `stream()`. (blind-hunter)
+- `low` The stdio round trips use `sleep` and never send more than 200 matches; batching and emit are pinned in-memory by `test_search_core` and `test_channel`. (blind-hunter)
+- `low` No per-search timing log: measurement is Story 2.4's job. (blind-hunter)
+- `low` `test_search_core.py` imports helpers from other test modules. (blind-hunter)
+- `low` Blank text gives `invalidRequest` with validation on and an empty `searchDone` without. Already rejected in review 1. (blind-hunter, edge-case-hunter)
+- `low` A lone surrogate in the text breaks `searchParsed`. Not typeable, and `JSON.stringify` escapes it. (edge-case-hunter)
+- `low` Alt/Ctrl/Shift+Enter search too. Harmless. (edge-case-hunter)
+- `low` After a restart the snapshot looks like a cancel. Nothing renders it yet, and 2.2's no-results state comes only from `searchDone.outcomeCode`. (edge-case-hunter)
+- `low` Spec `status: done` vs sprint `review`, and AC1 (`tauri dev`) unchecked. Fixing it means editing the spec under review; the manual run is the author's. (blind-hunter+acceptance-auditor)
+- `low` F3, `select()` and the snapshot's `error` go past the frozen text. Recorded in Implementation Notes as review-1 patches; no Never rule is broken. (acceptance-auditor)
+
 ## Implementation Notes
 
 - The transport takes `register_channel(..., streaming=True)`. A streaming handler is called with `emit` as its third argument, and `Channel._emit` sends under the channel lock, or raises `Cancelled` once the request is cancelled or abandoned.
