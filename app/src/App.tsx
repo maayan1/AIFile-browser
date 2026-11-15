@@ -3,6 +3,7 @@ import { BrowseSession, type BrowseActions, type BrowseSnapshot } from "./browse
 import { AppShell } from "./components/shell/AppShell";
 import { EngineSession } from "./engine/session";
 import { ProtocolClient, tauriTransport } from "./protocol/client";
+import { SearchSession, type SearchActions, type SearchSnapshot } from "./search/session";
 
 // Dev-only check from Story 1.1: a Hebrew ping round-trip after every ready, logged to the console.
 const ECHO_TEXT = "סיכום ישיבה";
@@ -11,15 +12,24 @@ export default function App() {
   const [bannerVisible, setBannerVisible] = useState(false);
   const [browse, setBrowse] = useState<BrowseSnapshot | undefined>(undefined);
   const [actions, setActions] = useState<BrowseActions | undefined>(undefined);
+  const [search, setSearch] = useState<SearchSnapshot | undefined>(undefined);
+  const [searchActions, setSearchActions] = useState<SearchActions | undefined>(undefined);
 
   useEffect(() => {
     const client = new ProtocolClient(tauriTransport());
     const session = new EngineSession(client);
     const browsing = new BrowseSession(client);
+    // Dev only: each search reply's id and type in the console (never the search text).
+    const searching = new SearchSession(
+      client,
+      import.meta.env.DEV ? (id, type, detail) => console.info("[search]", id, type, detail ?? "") : undefined,
+    );
     let active = true;
 
     browsing.subscribe(setBrowse);
     setActions(browsing);
+    searching.subscribe(setSearch);
+    setSearchActions(searching);
     session.subscribe((snapshot) => {
       setBannerVisible(snapshot.bannerVisible);
       // Dev readout (was on screen in 1.1/1.2): engine state, protocol version and status.
@@ -49,10 +59,19 @@ export default function App() {
 
     return () => {
       active = false;
+      searching.stop();
       browsing.stop();
       session.stop();
     };
   }, []);
 
-  return <AppShell bannerVisible={bannerVisible} browse={browse} actions={actions} />;
+  return (
+    <AppShell
+      bannerVisible={bannerVisible}
+      browse={browse}
+      actions={actions}
+      search={search}
+      searchActions={searchActions}
+    />
+  );
 }

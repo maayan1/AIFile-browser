@@ -76,3 +76,26 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-8-browse-with-the-keyboard-alone.md`
   summary: Give the browse list grid or listbox semantics (e.g. `role="grid"`, `aria-multiselectable="false"`) so Narrator announces the arrow-key selection, then verify with Narrator. Medium; target Story 7.3.
   evidence: Rows are `<tr aria-selected tabIndex>` in a plain `<table>`, where `aria-selected` isn't a supported state, so screen readers may not announce selection changes as ↑/↓ move it. The markup predates 1.8 (Story 1.4). Review finding BH5.
+
+## Deferred from: Story 2.1 build (2026-11-13)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-search-names-in-this-folder-and-its-subfolders.md`
+  summary: `engine::tests::ipc_names_match_protocol_ipc_json` fails whenever `engine.rs` is checked out with CRLF (`core.autocrlf=true`, no `.gitattributes`); add `*.rs text eol=lf` (or make the test ignore `\r`).
+  evidence: after `git checkout main` for the 1.9 merge, git rewrote `app/src-tauri/src/engine.rs` with CRLF and the test's `"#[tauri::command]\npub fn engine_send("` search missed; converting the working copy back to LF (no diff vs index) made `cargo test` pass 29/29. Story 2.1 forbids Rust changes, so the durable fix waits.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-search-names-in-this-folder-and-its-subfolders.md`
+  summary: Name results accumulate quadratically in `SearchSession` (copy plus notify per 200-match batch), and `name_search` flushes only between folders, so one huge or slow folder holds its matches. Handle both in Story 2.4's measurement and tuning.
+  evidence: `app/src/search/session.ts` `[...this.current.matches, ...message.matches]` per batch; `engine/core/search/filename.py` checks FLUSH_AFTER after each walked folder. A drive-root search with ~100k matches makes ~500 batches, each copying the growing array.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-search-names-in-this-folder-and-its-subfolders.md`
+  summary: Re-target the Story 1.4 item "split an oversized `folderListing` into several replies on the same id". Multi-message replies now exist (`Channel` `emit`, `ProtocolClient.stream`), so the split can reuse them.
+  evidence: the 1.4 entry said multi-message replies "arrive with search, which is the natural time to add both together"; Story 2.1 added the streaming path but kept `folderListing` single-reply.
+
+## Deferred from: code review of spec-2-1-search-names-in-this-folder-and-its-subfolders.md (2026-11-15)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-search-names-in-this-folder-and-its-subfolders.md`
+  summary: Same CRLF item as the 2.1 build entry above; review 2 notes that the `.gitattributes` fix is not a Rust change, so it can land any time (renormalize `engine.rs` once).
+  evidence: AC2's `cargo test` passes only on the hand-fixed LF working copy; `git status` still shows `M app/src-tauri/src/engine.rs` with an empty `git diff --stat`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-search-names-in-this-folder-and-its-subfolders.md`
+  summary: Story 1.9's elevated 10-min network run (`app/scripts/network-check.ps1`, results in `docs/network-check.md`) is still open while Epic 2 is under way; NFR-1 wants it before Phase 2.
+  evidence: `sprint-status.yaml` comment on `1-9-confirm-the-app-makes-no-network-connections`, deferred by the author 2026-11-13.

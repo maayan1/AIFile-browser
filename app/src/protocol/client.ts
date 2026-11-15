@@ -11,10 +11,14 @@ import type {
   ListFolder,
   ListLocations,
   Locations,
+  NameMatches,
   Ping,
   Pong,
   ProtocolMessage,
   Ready,
+  Search,
+  SearchDone,
+  SearchParsed,
   ShowInFolder,
   Status,
   StatusReport,
@@ -26,12 +30,16 @@ export type Request =
   | Omit<Status, "id">
   | Omit<ListFolder, "id">
   | Omit<ShowInFolder, "id">
-  | Omit<ListLocations, "id">;
+  | Omit<ListLocations, "id">
+  | Omit<Search, "id">;
 /**
  * Terminal replies, matched to a request by `id`. `cancelled` ends a request that a newer one on
  * the same engine channel replaced (latest wins).
  */
-export type Reply = Pong | StatusReport | FolderListing | Locations | Cancelled | ErrorMessage;
+export type Reply = Pong | StatusReport | FolderListing | Locations | SearchDone | Cancelled | ErrorMessage;
+/** Non-terminal replies: a `search` sends these on its id before its terminal reply (AD-15). */
+export type StreamMessage = SearchParsed | NameMatches;
+const STREAM_TYPES: ReadonlySet<string> = new Set<StreamMessage["type"]>(["searchParsed", "nameMatches"]);
 /** Unsolicited engine messages (`id: null`). */
 export type EngineEvent = Ready | (ErrorMessage & { id: null });
 /** The engine state as the shell's supervisor reports it. */
@@ -74,6 +82,8 @@ export class EngineStoppedError extends Error {
 interface Pending {
   resolve: (reply: Reply) => void;
   reject: (err: unknown) => void;
+  /** A `stream` request's listener for its non-terminal replies. */
+  onMessage?: (message: StreamMessage) => void;
 }
 
 export class ProtocolClient {
@@ -121,9 +131,22 @@ export class ProtocolClient {
 
   /** Sends a request and resolves with its terminal reply (an `error` reply resolves too). */
   request(message: Request): Promise<Reply> {
+    return this.dispatch(message);
+  }
+
+  /**
+   * Sends a request whose replies come in several messages: `onMessage` gets each non-terminal
+   * one (`searchParsed`, `nameMatches`) in order, and the promise resolves with the terminal
+   * reply. An engine restart rejects it with EngineStoppedError, as it does `request`.
+   */
+  stream(message: Request, onMessage: (message: StreamMessage) => void): Promise<Reply> {
+    return this.dispatch(message, onMessage);
+  }
+
+  private dispatch(message: Request, onMessage?: (message: StreamMessage) => void): Promise<Reply> {
     const id = this.newId();
     return new Promise<Reply>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, { resolve, reject, onMessage });
       this.transport.send(JSON.stringify({ ...message, id })).catch((err: unknown) => {
         if (this.pending.delete(id)) reject(err);
       });
@@ -171,9 +194,13 @@ export class ProtocolClient {
       return;
     }
     const pending = this.pending.get(message.id);
-    if (pending) {
-      this.pending.delete(message.id);
-      pending.resolve(message as Reply);
+    if (!pending) return;
+    if (STREAM_TYPES.has(message.type)) {
+      // Never terminal: the request stays pending until its terminal reply.
+      pending.onMessage?.(message as StreamMessage);
+      return;
     }
+    this.pending.delete(message.id);
+    pending.resolve(message as Reply);
   }
 }

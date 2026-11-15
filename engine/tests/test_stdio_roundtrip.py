@@ -485,3 +485,88 @@ def test_show_in_folder_and_list_folder_cancel_each_other(test_fs_engine: Engine
     assert (latest["id"], latest["type"]) == ("c5", "folderListing") and "selected" not in latest
     assert test_fs_engine.close() == 0
     assert no_schema_violations(tmp_path)
+
+
+# ----- search (spec 2.1 I/O matrix) ------------------------------------------
+
+
+def read_search(engine: Engine, request_id: str, timeout: float = 10.0) -> list[dict]:
+    """Every reply on `request_id` up to and including its terminal one."""
+    replies: list[dict] = []
+    while True:
+        reply = engine.read(timeout=timeout)
+        assert reply["id"] == request_id, reply
+        replies.append(reply)
+        if reply["type"] not in ("searchParsed", "nameMatches"):
+            return replies
+
+
+def test_search_finds_names_in_the_folder_and_its_subfolders(engine: Engine, tmp_path: Path) -> None:
+    docs = tmp_path / "Docs"
+    deep = docs / "a" / "b" / "c"
+    deep.mkdir(parents=True)
+    for name in ["report.pdf", "photo.jpg", "report-final.docx", "דוח שנתי.docx", "~$report.docx"]:
+        (docs / name).write_bytes(b"")
+    (deep / "Old REPORT.txt").write_bytes(b"")
+    (docs / "reports").mkdir()
+
+    engine.send({"id": "q1", "type": "search", "text": "  report ", "folder": str(docs).lower()})
+    replies = read_search(engine, "q1")
+    for reply in replies:
+        assert_valid(reply)
+    assert [r["type"] for r in replies] == ["searchParsed", "nameMatches", "searchDone"]
+    assert replies[0] == {"id": "q1", "type": "searchParsed", "mode": "normal", "dateRange": None, "residualText": "report"}
+    by_name = {m["name"]: m for m in replies[1]["matches"]}
+    assert sorted(by_name) == ["Old REPORT.txt", "report-final.docx", "report.pdf", "reports"]
+    assert by_name["Old REPORT.txt"]["path"] == str(deep / "Old REPORT.txt")
+    assert by_name["Old REPORT.txt"]["folder"] == str(deep)
+    assert by_name["reports"]["kind"] == "folder"
+    assert replies[-1] == {"id": "q1", "type": "searchDone", "notices": [], "indexVersion": None, "indexingActive": False}
+
+    engine.send({"id": "q2", "type": "search", "text": "דוח", "folder": str(docs)})
+    replies = read_search(engine, "q2")
+    assert [m["name"] for m in replies[1]["matches"]] == ["דוח שנתי.docx"]
+
+    engine.send({"id": "q3", "type": "search", "text": "xyz123", "folder": str(docs)})
+    replies = read_search(engine, "q3")
+    assert [r["type"] for r in replies] == ["searchParsed", "nameMatches", "searchDone"]
+    assert replies[1]["matches"] == []
+
+    assert engine.close() == 0
+    log_text = (tmp_path / "engine.log").read_text(encoding="utf-8")
+    assert "violates its schema" not in log_text
+    for text in ["דוח", "xyz123"]:
+        assert text not in log_text  # the search text is never logged
+
+
+def test_search_in_a_missing_folder_is_folder_not_found(engine: Engine, tmp_path: Path) -> None:
+    engine.send({"id": "q4", "type": "search", "text": "secret-words", "folder": str(tmp_path / "gone")})
+    assert engine.read() == {"id": "q4", "type": "error", "code": "folderNotFound", "data": {}}
+    assert engine.close() == 0
+    log_text = (tmp_path / "engine.log").read_text(encoding="utf-8")
+    assert "search: folderNotFound" in log_text  # the folder-error path did log
+    assert "secret-words" not in log_text  # and the search text is never logged
+
+
+def test_search_with_blank_text_is_invalid(engine: Engine, tmp_path: Path) -> None:
+    engine.send({"id": "q5", "type": "search", "text": "   ", "folder": str(tmp_path)})
+    assert engine.read() == {"id": "q5", "type": "error", "code": "invalidRequest", "data": {}}
+
+
+def test_a_newer_search_replaces_the_running_one(test_fs_engine: Engine, tmp_path: Path) -> None:
+    docs: Path = test_fs_engine.documents  # type: ignore[attr-defined]
+    test_fs_engine.send({"id": "r1", "type": "search", "text": "f1", "folder": "SLOW"})
+    time.sleep(0.2)  # the first search is under way
+    test_fs_engine.send({"id": "r2", "type": "search", "text": "budget", "folder": str(docs)})
+    assert test_fs_engine.read() == {"id": "r1", "type": "cancelled"}
+    replies = read_search(test_fs_engine, "r2")
+    assert [r["type"] for r in replies] == ["searchParsed", "nameMatches", "searchDone"]
+    assert [m["name"] for m in replies[1]["matches"]] == ["Budget תקציב.pdf"]
+    # A search never holds up a listing: they are on different channels.
+    test_fs_engine.send({"id": "r3", "type": "search", "text": "f1", "folder": "SLOW"})
+    test_fs_engine.send({"id": "r4", "type": "listFolder"})
+    assert test_fs_engine.read()["id"] == "r4"
+    assert test_fs_engine.close() == 0
+    assert test_fs_engine.read() == {"id": "r3", "type": "cancelled"}
+    assert test_fs_engine.lines.empty()
+    assert no_schema_violations(tmp_path)

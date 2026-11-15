@@ -12,6 +12,8 @@
   thread only queues them, so ``ping`` is answered while a listing runs. A newer request on the
   channel cancels the older one's token, and the older one ends with ``cancelled``; one stuck
   inside an OS call past a short grace period is abandoned to a thread of its own.
+- A streaming channel handler (``streaming=True``) may also send non-terminal replies on its
+  request's id through ``emit`` before it returns its terminal reply (AD-15).
 """
 
 from __future__ import annotations
@@ -42,6 +44,9 @@ stray_log = logging.getLogger("fb2.stdout")
 Message = dict[str, Any]
 Handler = Callable[[Message], Message]
 ChannelHandler = Callable[[Message, CancelToken], Message]
+Emit = Callable[[Message], None]
+"""Sends one non-terminal reply; raises Cancelled once the request is cancelled or abandoned."""
+StreamingHandler = Callable[[Message, CancelToken, Emit], Message]
 
 
 def handle_ping(request: Message) -> Message:
@@ -121,10 +126,13 @@ MAX_ABANDONED = 8
 class _Job:
     """One submitted request. `done` and `abandoned` change only under the channel's lock."""
 
-    def __init__(self, request: Message, handler: ChannelHandler, token: CancelToken) -> None:
+    def __init__(
+        self, request: Message, handler: ChannelHandler | StreamingHandler, token: CancelToken, streaming: bool
+    ) -> None:
         self.request = request
         self.handler = handler
         self.token = token
+        self.streaming = streaming
         self.done = False
         self.abandoned = False
 
@@ -134,7 +142,9 @@ class Channel:
 
     Every submitted request ends with exactly one terminal reply: its handler's reply, an
     ``invalidRequest`` error if the handler fails, or ``cancelled`` if a newer request arrived
-    before its reply was queued.
+    before its reply was queued. A streaming handler's ``emit`` replies all come before it:
+    ``emit`` queues under the same lock ``_abandon`` sends ``cancelled`` under, and once the
+    request is cancelled or abandoned it drops the message and raises Cancelled instead.
 
     A cancelled request still running after ``abandon_after`` seconds is abandoned: Python can't
     interrupt a thread inside an OS call, so the channel sends the request's ``cancelled`` reply
@@ -164,7 +174,8 @@ class Channel:
         self._queue: queue.Queue[_Job | None] = queue.Queue()
         self._thread = self._start_worker()
 
-    def submit(self, request: Message, handler: ChannelHandler) -> None:
+    def submit(self, request: Message, handler: ChannelHandler | StreamingHandler, streaming: bool = False) -> None:
+        """Queue `request`; a `streaming` handler is called with an ``emit`` as its third argument."""
         token = CancelToken()
         with self._lock:
             # Every older request was cancelled when its successor arrived, so only the latest
@@ -175,7 +186,7 @@ class Channel:
             self._latest = token
             # Watch the previous request unless it has already ended (the usual case).
             watch = previous is not None and previous is not self._last_done
-        self._queue.put(_Job(request, handler, token))
+        self._queue.put(_Job(request, handler, token, streaming))
         if watch:
             # Keyed on the token, not on what runs now: the worker may have taken the previous
             # request off the queue without having marked it running yet.
@@ -258,11 +269,23 @@ class Channel:
                 self._running = None
             self._send(reply)
 
-    @staticmethod
-    def _reply(job: _Job) -> Message:
+    def _emit(self, job: _Job, message: Message) -> None:
+        """Queue one non-terminal reply for `job`, unless it is cancelled or abandoned (then raise
+        Cancelled): its terminal reply may already be out, and nothing may follow that."""
+        with self._lock:
+            if job.abandoned or job.token.cancelled:
+                raise Cancelled
+            self._send(message)
+
+    def _reply(self, job: _Job) -> Message:
         request_id = job.request["id"]
         try:
-            reply = cancelled(request_id) if job.token.cancelled else job.handler(job.request, job.token)
+            if job.token.cancelled:
+                reply = cancelled(request_id)
+            elif job.streaming:
+                reply = job.handler(job.request, job.token, lambda message: self._emit(job, message))  # type: ignore[call-arg]
+            else:
+                reply = job.handler(job.request, job.token)  # type: ignore[call-arg]
         except Cancelled:
             reply = cancelled(request_id)
         except Exception:
@@ -282,7 +305,7 @@ class StdioTransport:
         self._writer = threading.Thread(target=self._write_loop, name="protocol-writer", daemon=True)
         self._drain: threading.Thread | None = None
         self._channels: dict[str, Channel] = {}
-        self._channel_of: dict[str, tuple[Channel, ChannelHandler]] = {}
+        self._channel_of: dict[str, tuple[Channel, ChannelHandler | StreamingHandler, bool]] = {}
 
     # ----- setup / teardown -------------------------------------------------
 
@@ -320,11 +343,14 @@ class StdioTransport:
         log.info("transport open (validate=%s)", validate)
         return transport
 
-    def register_channel(self, request_type: str, channel: str, handler: ChannelHandler) -> None:
-        """Serve `request_type` off the reader thread on the named channel (created on first use)."""
+    def register_channel(
+        self, request_type: str, channel: str, handler: ChannelHandler | StreamingHandler, streaming: bool = False
+    ) -> None:
+        """Serve `request_type` off the reader thread on the named channel (created on first use).
+        A `streaming` handler also gets an ``emit`` for its non-terminal replies."""
         if channel not in self._channels:
             self._channels[channel] = Channel(channel, self.send)
-        self._channel_of[request_type] = (self._channels[channel], handler)
+        self._channel_of[request_type] = (self._channels[channel], handler, streaming)
 
     def close(self) -> None:
         """Answer or cancel channel work, flush pending protocol output and stop the helper threads."""
@@ -410,8 +436,8 @@ class StdioTransport:
 
         if handler is None:
             assert channelled is not None
-            channel, channel_handler = channelled
-            channel.submit(request, channel_handler)
+            channel, channel_handler, streaming = channelled
+            channel.submit(request, channel_handler, streaming)
             return None
         try:
             return handler(request)

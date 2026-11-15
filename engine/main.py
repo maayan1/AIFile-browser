@@ -16,12 +16,21 @@ from collections.abc import Callable
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from adapters.stdio_transport import PROTOCOL_VERSION, ChannelHandler, Message, StdioTransport, error
+from adapters.stdio_transport import (
+    PROTOCOL_VERSION,
+    ChannelHandler,
+    Emit,
+    Message,
+    StdioTransport,
+    StreamingHandler,
+    error,
+)
 from adapters.windows_fs import WindowsFileSystem
 from core.browse import FolderUnreadable, list_folder, show_in_folder
 from core.cancel import CancelToken
 from core.locations import locations
 from core.ports.filesystem import FileSystemPort
+from core.search import name_search, parse_query
 
 FOLDER_NOT_FOUND = "folderNotFound"
 ACCESS_DENIED = "accessDenied"
@@ -120,6 +129,28 @@ def list_locations_handler(fs: FileSystemPort) -> ChannelHandler:
     return handle
 
 
+def search_handler(fs: FileSystemPort) -> StreamingHandler:
+    """The `search` handler: searchParsed and nameMatches through `emit`, then searchDone, or the
+    folder error as a protocol code. The search text is never logged."""
+
+    def handle(request: Message, token: CancelToken, emit: Emit) -> Message:
+        request_id = request["id"]
+
+        def send(message: Message) -> None:
+            emit({"id": request_id, **message})
+
+        query = parse_query(request["text"], request.get("literalPhrases", []))
+        try:
+            done = name_search(fs, request["folder"], query, token, send)
+        except OSError as exc:
+            code = folder_error_code(exc)
+            log.info("search: %s (winerror %s)", code, getattr(exc, "winerror", None))
+            return error(request_id, code)
+        return {"id": request_id, **done}
+
+    return handle
+
+
 def main() -> int:
     setup_logging()
     transport = StdioTransport.open(validate=os.environ.get("FB2_VALIDATE_PROTOCOL") == "1")
@@ -129,6 +160,8 @@ def main() -> int:
     transport.register_channel("showInFolder", "listFolder", show_in_folder_handler(fs))
     # Its own channel: reading a removable drive's label can block, and must never hold up a listing.
     transport.register_channel("listLocations", "locations", list_locations_handler(fs))
+    # Its own channel, latest wins: a new search replaces the running one and nothing else.
+    transport.register_channel("search", "search", search_handler(fs), streaming=True)
     transport.send({"id": None, "type": "ready", "protocolVersion": PROTOCOL_VERSION})
     try:
         transport.serve_forever()

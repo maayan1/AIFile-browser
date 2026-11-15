@@ -12,6 +12,7 @@ export const catalog = {
   "breadcrumb.field": "Folder path",
   "search.label": "Search",
   "search.placeholder": "Search by name, or describe what you remember",
+  "search.clear": "Clear search",
   "filter.label": "Filters",
   "filter.date": "Date",
   "filter.type": "Type",
