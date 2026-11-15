@@ -1,14 +1,21 @@
-// The search model, kept outside React so it can be tested: the latest search's parsed text, its
-// name matches so far and its end. One Enter sends one `search`; its replies arrive on its id in
-// order (searchParsed, nameMatches batches, then searchDone or cancelled). A newer search replaces
-// the running one: the engine ends the old one with `cancelled`, and anything still arriving for it
-// is ignored here. It holds no product rules: the engine matches and decides; Story 2.2 renders.
+// The search model, kept outside React so it can be tested: whether the search view is open, the
+// folder searched, the latest search's parsed text, its name matches so far and its end. One Enter
+// sends one `search`; its replies arrive on its id in order (searchParsed, nameMatches batches, then
+// searchDone or cancelled). A newer search replaces the running one: the engine ends the old one
+// with `cancelled`, and anything still arriving for it is ignored here. Closing the view drops
+// anything still arriving too. It holds no product rules: the engine matches and decides (its
+// `outcomeCode`); the result list renders.
+import type { Place } from "../browse/session";
 import type { FileMatch, FolderMatch, SearchDone, SearchParsed } from "../protocol/generated";
 import { EngineStoppedError, type ProtocolClient, type Reply, type StreamMessage } from "../protocol/client";
 
 export type NameMatch = FolderMatch | FileMatch;
 
 export interface SearchSnapshot {
+  /** The search view is open: from Enter until Esc, ✕ or a navigation closes it. */
+  open: boolean;
+  /** The searched folder's place, which names the start of each match's location; null when closed. */
+  root: Place | null;
   /** A search is waiting for its terminal reply (the spinner shows). */
   running: boolean;
   /** How the engine read the latest search's text; null until it says. */
@@ -23,12 +30,19 @@ export interface SearchSnapshot {
 
 /** What the views may ask the search session to do. */
 export interface SearchActions {
-  /** Searches `folder` and its subfolders for `text`; whitespace-only text sends nothing. */
-  search(text: string, folder: string): void;
+  /**
+   * Opens the search view and searches the folder at `place` and its subfolders for `text`;
+   * whitespace-only text sends nothing.
+   */
+  search(text: string, place: Place): void;
+  /** Closes the search view: back to the snapshot before any search; late replies are dropped. */
+  close(): void;
 }
 
 /** The snapshot before anything is searched. */
 export const INITIAL_SEARCH: SearchSnapshot = {
+  open: false,
+  root: null,
   running: false,
   parsed: null,
   matches: [],
@@ -61,12 +75,12 @@ export class SearchSession implements SearchActions {
     return () => this.listeners.delete(listener);
   }
 
-  search(text: string, folder: string): void {
+  search(text: string, place: Place): void {
     if (!text.trim()) return;
     const search = ++this.latest;
-    this.update({ running: true, parsed: null, matches: [], done: null, error: null });
+    this.update({ open: true, root: place, running: true, parsed: null, matches: [], done: null, error: null });
     this.client
-      .stream({ type: "search", text, folder }, (message) => {
+      .stream({ type: "search", text, folder: place.path }, (message) => {
         this.traced(message);
         if (search !== this.latest) return; // a newer search owns the results
         if (message.type === "searchParsed") this.update({ parsed: message });
@@ -76,7 +90,7 @@ export class SearchSession implements SearchActions {
         this.traced(reply);
         if (search !== this.latest) return;
         if (reply.type === "searchDone") this.update({ running: false, done: reply });
-        else if (reply.type === "error") this.update({ running: false, error: reply.code }); // Story 2.2 words it
+        else if (reply.type === "error") this.update({ running: false, error: reply.code });
         else this.update({ running: false }); // cancelled
       })
       .catch((err: unknown) => {
@@ -85,6 +99,13 @@ export class SearchSession implements SearchActions {
         this.update({ running: false });
         if (!(err instanceof EngineStoppedError)) console.error("search request failed", err);
       });
+  }
+
+  close(): void {
+    // Replies still arriving for the closed search are dropped; the engine finishes it on its own
+    // (sending `cancel` is Story 2.3).
+    ++this.latest;
+    if (this.current.open) this.update(INITIAL_SEARCH);
   }
 
   stop(): void {

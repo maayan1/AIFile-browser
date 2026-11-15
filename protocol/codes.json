@@ -5,5 +5,8 @@
     "folderNotFound",
     "accessDenied",
     "folderUnavailable"
+  ],
+  "outcomeCodes": [
+    "noMatches"
   ]
 }

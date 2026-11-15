@@ -1,15 +1,16 @@
 import { ArrowLeft, ArrowRight, ArrowUp, LoaderCircle, Search, Settings, X } from "lucide-react";
-import { useState, type ComponentType, type KeyboardEvent, type RefObject } from "react";
+import type { ComponentType, KeyboardEvent, RefObject } from "react";
 import { Breadcrumb } from "@/browse/Breadcrumb";
-import type { BrowseActions, BrowseSnapshot } from "@/browse/session";
+import type { BrowseActions, BrowseSnapshot, Place } from "@/browse/session";
 import { Button } from "@/components/ui/button";
 import { t, type CatalogKey } from "@/i18n/catalog";
 import { cn } from "@/lib/utils";
 import type { SearchActions, SearchSnapshot } from "@/search/session";
 
 // Top bar (UX-DR4). Back, Forward and Up follow the browse session (1.5); the Search Bar searches
-// the listed folder on Enter (2.1); Search folders arrives in Epic 3, so it stays inert. Back and
-// forward mirror under `dir="rtl"`; up and the gear have no direction.
+// the listed folder on Enter (2.1), and its ✕ leaves the search view (2.2); its text lives in the
+// app shell, so Esc and navigation can clear it too. Search folders arrives in Epic 3, so it stays
+// inert. Back and forward mirror under `dir="rtl"`; up and the gear have no direction.
 function IconButton({
   label,
   icon: Icon,
@@ -35,6 +36,9 @@ export function TopBar({
   search,
   searchActions,
   searchInput,
+  searchText = "",
+  onSearchText,
+  onClearSearch,
 }: {
   browse?: BrowseSnapshot;
   actions?: BrowseActions;
@@ -42,6 +46,10 @@ export function TopBar({
   searchActions?: SearchActions;
   /** The Search Bar's input, for Ctrl+E and Ctrl+F. */
   searchInput?: RefObject<HTMLInputElement | null>;
+  /** The Search Bar's text, and what typing in it and ✕ do. */
+  searchText?: string;
+  onSearchText?: (text: string) => void;
+  onClearSearch?: () => void;
 }) {
   // Each is disabled when there's nowhere to go (no history, or a drive or share root).
   const back = actions && browse?.canBack ? () => actions.back() : undefined;
@@ -57,10 +65,13 @@ export function TopBar({
 
       <SearchBar
         // None while a folder loads: the listing kept on screen is the folder being left.
-        folder={browse?.loading ? undefined : browse?.listing?.path}
+        place={browse && !browse.loading && browse.listing ? (browse.place ?? undefined) : undefined}
         running={search?.running ?? false}
         actions={searchActions}
         input={searchInput}
+        text={searchText}
+        onText={onSearchText}
+        onClear={onClearSearch}
       />
 
       <div className="ms-1">
@@ -73,30 +84,36 @@ export function TopBar({
 /**
  * Search Bar (UX-DR5): takes the remaining width up to 640px. Its 1px primary border becomes 2px on
  * focus, and that is its focus ring (no extra outline). Typing sends nothing; Enter searches the
- * listed folder (nothing without a listing, or with blank text). A spinner replaces the magnifier
- * while a search runs, and ✕ appears once there is text.
+ * listed folder and opens the search view (nothing without a listing, or with blank text). A
+ * spinner replaces the magnifier while a search runs, and ✕ appears once there is text; it clears
+ * the text, leaves the search view and keeps the focus here.
  */
 function SearchBar({
-  folder,
+  place,
   running,
   actions,
   input,
+  text,
+  onText,
+  onClear,
 }: {
-  /** The listed folder's path; undefined while no folder is listed or one is loading. */
-  folder?: string;
+  /** The listed folder's place; undefined while no folder is listed or one is loading. */
+  place?: Place;
   running: boolean;
   actions?: SearchActions;
   input?: RefObject<HTMLInputElement | null>;
+  text: string;
+  onText?: (text: string) => void;
+  onClear?: () => void;
 }) {
-  const [text, setText] = useState("");
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
     event.preventDefault();
     if (event.repeat) return; // a held Enter searches once
-    if (text.trim() && folder !== undefined) actions?.search(text, folder);
+    if (text.trim() && place !== undefined) actions?.search(text, place);
   };
   const clear = () => {
-    setText("");
+    onClear?.();
     input?.current?.focus();
   };
   const Icon = running ? LoaderCircle : Search;
@@ -116,7 +133,7 @@ function SearchBar({
         aria-busy={running}
         placeholder={t("search.placeholder")}
         value={text}
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => onText?.(event.target.value)}
         onKeyDown={onKeyDown}
         className="min-w-0 flex-1 bg-transparent text-search outline-hidden placeholder:text-muted-foreground"
       />

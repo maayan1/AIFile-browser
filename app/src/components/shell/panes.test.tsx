@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { INITIAL_SNAPSHOT, type BrowseActions, type BrowseSnapshot, type Place } from "@/browse/session";
 import { t } from "@/i18n/catalog";
 import type { Locations } from "@/protocol/generated";
+import { INITIAL_SEARCH, type SearchSnapshot } from "@/search/session";
 import { MainArea, NavPane } from "./panes";
 import { TopBar } from "./TopBar";
 
@@ -163,5 +164,35 @@ describe("MainArea", () => {
     } finally {
       delete (Element.prototype as Partial<Element>).scrollIntoView;
     }
+  });
+
+  it("shows the search results while the search view is open, the browse list kept but hidden", () => {
+    const listing = {
+      id: "u9",
+      type: "folderListing" as const,
+      ...IN_VOLUNTEERING,
+      entries: [{ name: "Photos", kind: "folder" as const, modified: null }],
+    };
+    const browse = snapshot(IN_VOLUNTEERING, { listing });
+    const searching: SearchSnapshot = {
+      ...INITIAL_SEARCH,
+      open: true,
+      root: IN_VOLUNTEERING,
+      matches: [{ name: "report.pdf", kind: "file", typeCode: "pdf", path: `${DOCS}\\report.pdf`, folder: DOCS, modified: null }],
+    };
+    const { rerender } = render(<MainArea browse={browse} search={INITIAL_SEARCH} />);
+    const main = screen.getByRole("main");
+    expect(within(main).getByRole("table")).toBeTruthy();
+    main.scrollTop = 480;
+    rerender(<MainArea browse={browse} search={searching} />);
+    expect(main.scrollTop).toBe(0);
+    expect(within(main).queryByRole("table")).toBeNull(); // hidden, not gone
+    expect(main.querySelector("table")).not.toBeNull();
+    expect(within(main).getAllByRole("option")).toHaveLength(1);
+    main.scrollTop = 300;
+    rerender(<MainArea browse={browse} search={INITIAL_SEARCH} />);
+    expect(main.scrollTop).toBe(0);
+    expect(within(main).getByRole("table")).toBeTruthy();
+    expect(within(main).queryByRole("option")).toBeNull();
   });
 });

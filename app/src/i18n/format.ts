@@ -56,7 +56,10 @@ export type Entry = FolderEntry | FileEntry;
 /** The type a row shows: `folder` for folders, else the engine's typeCode. */
 export type DisplayType = "folder" | FileEntry["typeCode"];
 
-export function displayType(entry: Entry): DisplayType {
+/** What decides the type a row shows: a listed entry and a name match both have it. */
+export type Typed = Pick<FolderEntry, "kind"> | Pick<FileEntry, "kind" | "typeCode">;
+
+export function displayType(entry: Typed): DisplayType {
   return entry.kind === "folder" ? "folder" : entry.typeCode;
 }
 
@@ -76,7 +79,8 @@ const TYPE_LABELS: Record<Exclude<DisplayType, "other">, CatalogKey> = {
   archive: "type.archive",
 };
 
-export function typeLabel(entry: Entry): string {
+// A listed entry, or anything else with a name and a type (a name match).
+export function typeLabel(entry: Entry | (Typed & { name: string })): string {
   const type = displayType(entry);
   if (type !== "other") return t(TYPE_LABELS[type]);
   const dot = entry.name.lastIndexOf(".");
@@ -91,6 +95,11 @@ const TB = GB * 1024;
 
 const whole = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
 const oneDecimal = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
+
+/** A count as the interface writes it: "2", "1,200". */
+export function formatCount(count: number): string {
+  return whole.format(count);
+}
 
 /** Like File Explorer: whole KB rounded up below 1 MB ("0 KB", "38 KB"), then "2.4 MB", "1.2 GB". */
 export function formatSize(bytes: number): string {

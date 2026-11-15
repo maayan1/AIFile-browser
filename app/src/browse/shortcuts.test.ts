@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BrowseActions } from "./session";
-import { shortcutFor, useBrowseShortcuts } from "./shortcuts";
+import { leavesSearch, shortcutFor, useBrowseShortcuts } from "./shortcuts";
 
 afterEach(cleanup);
 
@@ -210,5 +210,43 @@ describe("useBrowseShortcuts", () => {
     renderHook(() => useBrowseShortcuts(undefined, focusSearch));
     expect(fireEvent.keyDown(window, { key: "e", code: "KeyE", ctrlKey: true })).toBe(false);
     expect(focusSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the search view on a plain Esc, only while it is open and only when nothing handled it", () => {
+    const actions = fakeActions();
+    const leave = vi.fn();
+    const { rerender } = renderHook(({ open }: { open: boolean }) => useBrowseShortcuts(actions, undefined, open ? leave : undefined), {
+      initialProps: { open: false },
+    });
+    // Closed: Esc is left alone.
+    expect(fireEvent.keyDown(window, { key: "Escape" })).toBe(true);
+    rerender({ open: true });
+    expect(fireEvent.keyDown(window, { key: "Escape" })).toBe(false);
+    expect(leave).toHaveBeenCalledTimes(1);
+    // With a modifier, during an IME composition, or held: not this Esc.
+    expect(fireEvent.keyDown(window, { key: "Escape", shiftKey: true })).toBe(true);
+    expect(fireEvent.keyDown(window, { key: "Escape", isComposing: true })).toBe(true);
+    expect(fireEvent.keyDown(window, { key: "Escape", repeat: true })).toBe(true);
+    expect(leave).toHaveBeenCalledTimes(1);
+    // Handled already (the row menu or the path field closing): the view stays.
+    const handled = (event: KeyboardEvent) => event.preventDefault();
+    document.addEventListener("keydown", handled);
+    try {
+      fireEvent.keyDown(document.body, { key: "Escape" });
+    } finally {
+      document.removeEventListener("keydown", handled);
+    }
+    expect(leave).toHaveBeenCalledTimes(1);
+    expect(Object.values(actions).some((fn) => fn.mock.calls.length > 0)).toBe(false);
+  });
+});
+
+describe("leavesSearch", () => {
+  const plain = { key: "Escape", code: "Escape", altKey: false, ctrlKey: false, shiftKey: false, metaKey: false, repeat: false, isComposing: false, defaultPrevented: false };
+  it("is a plain, unhandled Esc", () => {
+    expect(leavesSearch(plain)).toBe(true);
+    expect(leavesSearch({ ...plain, defaultPrevented: true })).toBe(false);
+    expect(leavesSearch({ ...plain, ctrlKey: true })).toBe(false);
+    expect(leavesSearch({ ...plain, key: "Enter", code: "Enter" })).toBe(false);
   });
 });

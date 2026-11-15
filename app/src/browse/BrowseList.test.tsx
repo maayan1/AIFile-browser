@@ -2,11 +2,19 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { t } from "@/i18n/catalog";
-import type { FolderListing } from "@/protocol/generated";
+import type { FileEntry, FolderListing } from "@/protocol/generated";
+import { Breadcrumb } from "./Breadcrumb";
 import { BrowseList } from "./BrowseList";
-import { INITIAL_SNAPSHOT, type BrowseActions, type BrowseSnapshot } from "./session";
+import { INITIAL_SNAPSHOT, type BrowseActions, type BrowseSnapshot, type Place } from "./session";
 
 afterEach(cleanup);
+
+// The Correct Display list, loaded through Vite like the protocol examples.
+const fixtures = import.meta.glob<{ entries: { segments: string[]; name: string; kind: "file" | "folder" }[] }>(
+  "../../../fixtures/correct-display-names.json",
+  { eager: true, import: "default" },
+);
+const CORRECT_DISPLAY = Object.values(fixtures)[0].entries;
 
 const LISTING: FolderListing = {
   id: "u1",
@@ -443,5 +451,60 @@ describe("BrowseList", () => {
     rerender(<BrowseList snapshot={loaded({ ...LISTING, id: "u2", selected: "סיכום ישיבה 3.docx" })} />);
     expect(selectedNames()).toEqual(["סיכום ישיבה 3.docx"]);
     expect(document.activeElement).toBe(row("סיכום ישיבה 3.docx"));
+  });
+});
+
+describe("Correct Display in the browse list", () => {
+  const TYPES: Record<string, FileEntry["typeCode"]> = {
+    docx: "word",
+    pdf: "pdf",
+    md: "markdown",
+    txt: "text",
+    pptx: "powerpoint",
+    xlsx: "excel",
+    jpg: "image",
+    zip: "archive",
+  };
+
+  it("shows every name as one isolate in logical order, the extension last", () => {
+    const entries: FolderListing["entries"] = CORRECT_DISPLAY.map(({ name, kind }) =>
+      kind === "folder"
+        ? { name, kind, modified: null }
+        : { name, kind, typeCode: TYPES[name.slice(name.lastIndexOf(".") + 1)] ?? "other", size: 0, modified: null },
+    );
+    render(<BrowseList snapshot={loaded({ ...LISTING, entries })} />);
+    const [, ...rows] = screen.getAllByRole("row");
+    expect(rows).toHaveLength(CORRECT_DISPLAY.length);
+    for (const { name } of CORRECT_DISPLAY) {
+      const cell = within(row(name)).getAllByRole("cell")[0];
+      const isolates = cell.querySelectorAll("bdi");
+      expect(isolates, name).toHaveLength(1);
+      expect(isolates[0].getAttribute("dir")).toBe("auto");
+      expect(isolates[0].textContent).toBe(name);
+      expect(isolates[0].childNodes).toHaveLength(1);
+    }
+  });
+
+  it("shows every folder path as separate isolates in path order in the breadcrumb", () => {
+    const paths = new Set(CORRECT_DISPLAY.filter((e) => e.segments.length > 0).map((e) => JSON.stringify(e.segments)));
+    expect(paths.size).toBeGreaterThan(2);
+    for (const segments of [...paths].map((p) => JSON.parse(p) as string[])) {
+      const folders = segments.map((name, i) => ({
+        kind: "folder" as const,
+        name,
+        path: [DOCS, ...segments.slice(0, i + 1)].join("\\"),
+      }));
+      const path = folders.at(-1)!.path;
+      const place: Place = {
+        path,
+        parent: DOCS,
+        segments: [{ kind: "knownFolder", code: "documents", path: DOCS }, ...folders],
+      };
+      const { container, unmount } = render(<Breadcrumb snapshot={snapshot({ place, location: path })} />);
+      const isolates = [...container.querySelectorAll("ol bdi")];
+      expect(isolates.map((b) => b.getAttribute("dir"))).toEqual(isolates.map(() => "auto"));
+      expect(isolates.map((b) => b.textContent)).toEqual(["Documents", ...segments]);
+      unmount();
+    }
   });
 });

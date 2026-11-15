@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 ENGINE_DIR = Path(__file__).resolve().parents[1]
+CORRECT_DISPLAY = Path(__file__).resolve().parents[2] / "fixtures" / "correct-display-names.json"
 READY = {"id": None, "type": "ready", "protocolVersion": 1}
 HEBREW = "סיכום ישיבה"
 
@@ -529,14 +530,46 @@ def test_search_finds_names_in_the_folder_and_its_subfolders(engine: Engine, tmp
 
     engine.send({"id": "q3", "type": "search", "text": "xyz123", "folder": str(docs)})
     replies = read_search(engine, "q3")
+    for reply in replies:
+        assert_valid(reply)
     assert [r["type"] for r in replies] == ["searchParsed", "nameMatches", "searchDone"]
     assert replies[1]["matches"] == []
+    assert replies[-1]["outcomeCode"] == "noMatches"  # EARS-03: the engine decides
 
     assert engine.close() == 0
     log_text = (tmp_path / "engine.log").read_text(encoding="utf-8")
     assert "violates its schema" not in log_text
     for text in ["דוח", "xyz123"]:
         assert text not in log_text  # the search text is never logged
+
+
+def test_correct_display_names_come_back_unchanged(engine: Engine, tmp_path: Path) -> None:
+    """Every Correct Display name and folder, built on disk and searched, comes back as written."""
+    root = tmp_path / "Correct Display"
+    entries = json.loads(CORRECT_DISPLAY.read_text(encoding="utf-8"))["entries"]
+    assert len(entries) >= 10
+    expected: dict[str, tuple[str, str]] = {}
+    for entry in entries:
+        folder = root.joinpath(*entry["segments"])
+        folder.mkdir(parents=True, exist_ok=True)
+        item = folder / entry["name"]
+        if entry["kind"] == "folder":
+            item.mkdir()
+        else:
+            item.write_bytes(b"")
+        expected[str(item)] = (entry["kind"], str(folder))
+
+    engine.send({"id": "cd1", "type": "search", "text": ".", "folder": str(root)})
+    replies = read_search(engine, "cd1")
+    for reply in replies:
+        assert_valid(reply)
+    assert replies[-1]["type"] == "searchDone" and "outcomeCode" not in replies[-1]
+    matches = [m for r in replies if r["type"] == "nameMatches" for m in r["matches"]]
+    got = {m["path"]: (m["kind"], m["folder"]) for m in matches}
+    assert got == expected
+    for match in matches:
+        assert match["path"] == match["folder"] + "\\" + match["name"]
+    assert sorted(m["name"] for m in matches) == sorted(e["name"] for e in entries)
 
 
 def test_search_in_a_missing_folder_is_folder_not_found(engine: Engine, tmp_path: Path) -> None:

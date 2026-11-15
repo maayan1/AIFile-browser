@@ -49,7 +49,7 @@ development_status:
 
   epic-2: in-progress
   2-1-search-names-in-this-folder-and-its-subfolders: done
-  2-2-see-name-results-and-no-matching-files-found: backlog
+  2-2-see-name-results-and-no-matching-files-found: review
   2-3-cancel-a-search-and-keep-going-past-folders-i-can-t-open: backlog
   2-4-keep-name-search-fast-in-very-large-folders: backlog
   epic-2-retrospective: optional

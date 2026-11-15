@@ -13,7 +13,7 @@ import pytest
 
 from core.cancel import Cancelled, CancelToken
 from core.ports.filesystem import FILE_ATTRIBUTE_HIDDEN
-from core.search import BATCH_SIZE, FLUSH_AFTER, name_search, parse_query
+from core.search import BATCH_SIZE, FLUSH_AFTER, NO_MATCHES, name_search, parse_query
 from core.search.query import normalize
 from tests.test_browse_core import ISO_LOCAL, file, folder
 from tests.test_walk import CLOUD_FOLDER, WalkFs
@@ -71,6 +71,7 @@ def test_ears_01_returns_the_two_report_files_only() -> None:
     messages = run(fs, "report")
     assert_reply_order(messages)
     assert sorted(matched(messages)) == ["report-final.docx", "report.pdf"]
+    assert "outcomeCode" not in messages[-1]  # there were matches: nothing to say
 
 
 def test_matching_ignores_case_matches_folders_and_hebrew() -> None:
@@ -122,13 +123,26 @@ def test_each_match_carries_its_path_folder_type_and_date() -> None:
     assert ISO_LOCAL.match(match["modified"])
 
 
-def test_no_match_still_sends_one_empty_batch() -> None:
-    fs = WalkFs({DOCS: [file("report.pdf")]})
+def test_ears_03_no_match_sends_one_empty_batch_and_the_no_matches_outcome() -> None:
+    fs = WalkFs({DOCS: [file("report.pdf"), file("photo.jpg")]})
     messages = run(fs, "xyz123")
     assert_reply_order(messages)
     assert [m["type"] for m in messages] == ["searchParsed", "nameMatches", "searchDone"]
     assert messages[1]["matches"] == []
-    assert messages[-1] == {"type": "searchDone", "notices": [], "indexVersion": None, "indexingActive": False}
+    assert messages[-1] == {
+        "type": "searchDone",
+        "outcomeCode": NO_MATCHES,
+        "notices": [],
+        "indexVersion": None,
+        "indexingActive": False,
+    }
+
+
+def test_a_search_whose_matches_all_went_out_in_full_batches_has_no_outcome() -> None:
+    fs = WalkFs({DOCS: [folder("a")], DOCS + r"\a": [file(f"match {i}.txt") for i in range(BATCH_SIZE)]})
+    messages = run(fs, "match")
+    assert [len(m["matches"]) for m in messages if m["type"] == "nameMatches"] == [BATCH_SIZE]
+    assert "outcomeCode" not in messages[-1]
 
 
 def test_many_matches_arrive_in_batches_of_at_most_200_before_done() -> None:
@@ -232,6 +246,7 @@ def test_whitespace_only_text_walks_nothing() -> None:
     messages = run(fs, "   ")
     assert [m["type"] for m in messages] == ["searchParsed", "nameMatches", "searchDone"]
     assert messages[1]["matches"] == []
+    assert messages[-1]["outcomeCode"] == NO_MATCHES
     assert fs.listed == []
 
 
@@ -276,8 +291,23 @@ def test_the_handler_puts_the_request_id_on_every_reply() -> None:
     messages = handle(fs, {"id": "q1", "type": "search", "text": " report ", "folder": DOCS, "literalPhrases": []})
     assert [(m["id"], m["type"]) for m in messages] == [("q1", "searchParsed"), ("q1", "nameMatches"), ("q1", "searchDone")]
     assert messages[0]["residualText"] == "report"
+    assert messages[-1] == {"id": "q1", "type": "searchDone", "notices": [], "indexVersion": None, "indexingActive": False}
     for message in messages:
         schema(message["type"]).validate(message)
+
+
+def test_the_handler_passes_the_no_matches_outcome_on_unchanged() -> None:
+    fs = WalkFs({DOCS: [file("report.pdf")]})
+    messages = handle(fs, {"id": "q3", "type": "search", "text": "xyz123", "folder": DOCS})
+    assert messages[-1] == {
+        "id": "q3",
+        "type": "searchDone",
+        "outcomeCode": "noMatches",
+        "notices": [],
+        "indexVersion": None,
+        "indexingActive": False,
+    }
+    schema("searchDone").validate(messages[-1])
 
 
 @pytest.mark.parametrize(

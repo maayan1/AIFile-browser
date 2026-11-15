@@ -99,3 +99,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-1-search-names-in-this-folder-and-its-subfolders.md`
   summary: Story 1.9's elevated 10-min network run (`app/scripts/network-check.ps1`, results in `docs/network-check.md`) is still open while Epic 2 is under way; NFR-1 wants it before Phase 2.
   evidence: `sprint-status.yaml` comment on `1-9-confirm-the-app-makes-no-network-connections`, deferred by the author 2026-11-13.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-2-see-name-results-and-no-matching-files-found.md`
+  summary: Names containing bidi control characters (U+202A–202E, U+2066–2069, U+200E/200F) can still reorder or spoof how they display, because `<bdi dir="auto">` doesn't neutralise them inside the name; neither the browse list nor Name matches handles them, and the Correct Display list has no such entry.
+  evidence: Unverified, medium if true. To settle it, render a name containing U+202E in the browse list and in ResultList and see whether the extension appears reversed. This has been in the browse list since Story 1.4; Story 7.2 (Hebrew interface) is a natural home for it.
