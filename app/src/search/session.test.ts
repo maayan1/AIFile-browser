@@ -169,7 +169,7 @@ describe("SearchSession", () => {
     }
   });
 
-  it("traces each reply's id and type, never the search text", async () => {
+  it("traces each search sent and each reply's id and type, never the search text", async () => {
     const trace = vi.fn();
     const { shell, session } = await started(trace);
     session.search("secret words", AT_DOCS);
@@ -178,6 +178,7 @@ describe("SearchSession", () => {
     shell.line(done("q1"));
     await flush();
     expect(trace.mock.calls).toEqual([
+      ["q1", "search"],
       ["q1", "searchParsed"],
       ["q1", "nameMatches", { matches: 2 }],
       ["q1", "searchDone"],
@@ -336,6 +337,7 @@ describe("SearchSession", () => {
     shell.line({ id: "q1", type: "cancelled" });
     await flush();
     expect(trace.mock.calls).toEqual([
+      ["q1", "search"],
       ["q1", "cancel"],
       ["q1", "cancelled"],
     ]);

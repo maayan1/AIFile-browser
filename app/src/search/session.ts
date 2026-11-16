@@ -63,7 +63,10 @@ export const INITIAL_SEARCH: SearchSnapshot = {
   error: null,
 };
 
-/** Sees each reply of a search and each cancel sent, for the dev console. Never given the search text. */
+/**
+ * Sees each search sent (type `search`), each of its replies and each cancel sent, for the dev
+ * console. Never given the search text.
+ */
 export type SearchTrace = (id: string | null, type: string, detail?: Record<string, unknown>) => void;
 
 export class SearchSession implements SearchActions {
@@ -107,6 +110,7 @@ export class SearchSession implements SearchActions {
           else this.update({ matches: [...this.current.matches, ...message.matches] });
         },
         (id) => {
+          this.trace?.(id, "search"); // the send: where the dev on-screen timer starts
           if (search === this.latest) this.cancellable = id;
         },
       )

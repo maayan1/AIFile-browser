@@ -44,7 +44,7 @@ vi.mock("./shell/open", () => ({
 }));
 
 // The dev readout logs to the console; keep test output quiet.
-vi.spyOn(console, "info").mockImplementation(() => {});
+const info = vi.spyOn(console, "info").mockImplementation(() => {});
 
 afterEach(() => {
   cleanup();
@@ -390,6 +390,33 @@ describe("App", () => {
     reply({ id: searches()[2].id, type: "error", code: "folderNotFound", data: {} });
     await flush();
     expect(spinning()).toBe(false);
+  });
+
+  it("dev only: logs each search's ms from Enter to its results on screen, never the search text", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
+    try {
+      await readyApp();
+      reply(listingOf(lastRequest("listFolder").id, DOCS, [{ kind: "knownFolder", code: "documents", path: DOCS }]));
+      await flush();
+      info.mockClear();
+      const bar = screen.getByRole<HTMLInputElement>("textbox", { name: t("search.label") });
+      act(() => fireEvent.change(bar, { target: { value: "secret words" } }));
+      act(() => void fireEvent.keyDown(bar, { key: "Enter" }));
+      const id = lastRequest("search").id;
+      reply({ id, type: "searchParsed", mode: "normal", dateRange: null, residualText: "secret words" });
+      reply({ id, type: "searchDone", notices: [], indexVersion: null, indexingActive: false });
+      await flush();
+      // Run every frame asked for, including the ones asked for inside a frame.
+      act(() => {
+        while (frames.length) frames.shift()!(0);
+      });
+      const onScreen = info.mock.calls.filter((call) => call[0] === "[search] on screen");
+      expect(onScreen).toEqual([["[search] on screen", id, expect.stringMatching(/^\d+ ms$/)]]);
+      expect(JSON.stringify(info.mock.calls)).not.toContain("secret");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("searches nothing while a folder loads or when it can't be listed", async () => {
