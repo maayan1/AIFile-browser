@@ -25,6 +25,7 @@ const ROOT: Place = {
 const PARSED: SearchParsed = { id: "q1", type: "searchParsed", mode: "normal", dateRange: null, residualText: "report" };
 const DONE: SearchDone = { id: "q1", type: "searchDone", notices: [], indexVersion: null, indexingActive: false };
 const NO_MATCHES: SearchDone = { ...DONE, outcomeCode: "noMatches" };
+const PERMISSION_SKIPPED: SearchDone = { ...DONE, notices: ["permissionSkipped"] };
 const OCT_14 = "2025-10-14T12:00:00+00:00";
 
 function file(name: string, folder = DOCS, modified: string | null = OCT_14): NameMatch {
@@ -66,6 +67,7 @@ const locationOf = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>("
 const metaOf = (row: HTMLElement) => row.querySelector("p")!.textContent;
 const announced = () => screen.getByRole("status").textContent;
 const header = () => screen.queryByRole("heading", { level: 2 });
+const noticeBanner = () => document.querySelector<HTMLElement>("[data-notices]");
 const selectedNames = () => options().filter((o) => o.getAttribute("aria-selected") === "true").map((o) => nameOf(o).textContent);
 
 describe("ResultList", () => {
@@ -167,6 +169,73 @@ describe("ResultList", () => {
     render(<ResultList snapshot={snapshot({ running: false, matches: [], done: null })} />);
     expect(screen.queryByText(t("search.noMatches"))).toBeNull();
     expect(header()).toBeNull();
+  });
+
+  it("a stopped search keeps its 30 rows under the notice banner 'Search stopped.', announced", () => {
+    const thirty = Array.from({ length: 30 }, (_, i) => file(`report ${i}.pdf`));
+    render(<ResultList snapshot={snapshot({ running: false, matches: thirty, stopped: true })} />);
+    expect(options()).toHaveLength(30);
+    expect(header()!.textContent).toBe("Name matches (30)");
+    const banner = noticeBanner()!;
+    expect([...banner.querySelectorAll("p")].map((p) => p.textContent)).toEqual(["Search stopped."]);
+    expect(banner.className).toContain("bg-notice-info");
+    expect(banner.className).toContain("text-notice-info-foreground");
+    expect(banner.querySelector("svg")!.classList.contains("lucide-info")).toBe(true);
+    expect(banner.querySelector("svg")!.getAttribute("aria-hidden")).toBe("true");
+    // Above the header and list, in DOM order.
+    expect(banner.compareDocumentPosition(header()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(announced()).toBe("Search stopped.");
+  });
+
+  it("a search stopped before any match shows only the banner, never 'No matching files found'", () => {
+    render(<ResultList snapshot={snapshot({ running: false, matches: [], stopped: true })} />);
+    expect(noticeBanner()!.textContent).toBe("Search stopped.");
+    expect(screen.queryByText(t("search.noMatches"))).toBeNull();
+    expect(header()).toBeNull();
+    expect(announced()).toBe("Search stopped.");
+    cleanup();
+    // Even were a noMatches outcome to come with it.
+    render(<ResultList snapshot={snapshot({ running: false, matches: [], stopped: true, done: NO_MATCHES })} />);
+    expect(screen.queryByText(t("search.noMatches"))).toBeNull();
+    expect(announced()).toBe("Search stopped.");
+  });
+
+  it("shows the permission notice with the results and announces it after the count", () => {
+    render(<ResultList snapshot={finished([file("report.pdf")], PERMISSION_SKIPPED)} />);
+    expect(options()).toHaveLength(1);
+    expect(noticeBanner()!.textContent).toBe("Some folders couldn't be searched because you don't have permission.");
+    expect(noticeBanner()!.compareDocumentPosition(header()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(announced()).toBe("1 name match found. Some folders couldn't be searched because you don't have permission.");
+  });
+
+  it("shows the empty state and the permission banner above it when only denied folders were left", () => {
+    render(<ResultList snapshot={finished([], { ...NO_MATCHES, notices: ["permissionSkipped"] })} />);
+    const banner = noticeBanner()!;
+    const sentence = screen.getByText(t("search.noMatches"), { selector: "p" });
+    expect(banner.textContent).toBe(t("search.permissionSkipped"));
+    expect(banner.compareDocumentPosition(sentence) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(announced()).toBe("No matching files found. Some folders couldn't be searched because you don't have permission.");
+  });
+
+  it("skips a notice code it has no sentence for", () => {
+    const unknown = { ...DONE, notices: ["somethingNew", "permissionSkipped"] } as unknown as SearchDone;
+    render(<ResultList snapshot={finished([file("report.pdf")], unknown)} />);
+    expect([...noticeBanner()!.querySelectorAll("p")].map((p) => p.textContent)).toEqual([t("search.permissionSkipped")]);
+    expect(announced()).toBe(`1 name match found. ${t("search.permissionSkipped")}`);
+    cleanup();
+    // Only unknown codes: no banner at all.
+    render(<ResultList snapshot={finished([file("report.pdf")], { ...unknown, notices: ["somethingNew"] } as unknown as SearchDone)} />);
+    expect(noticeBanner()).toBeNull();
+    expect(announced()).toBe("1 name match found");
+  });
+
+  it("shows no banner while running, for a plain finish, or after an error", () => {
+    const { rerender } = render(<ResultList snapshot={snapshot({ matches: [file("report.pdf")] })} />);
+    expect(noticeBanner()).toBeNull();
+    rerender(<ResultList snapshot={finished([file("report.pdf")])} />);
+    expect(noticeBanner()).toBeNull();
+    rerender(<ResultList snapshot={snapshot({ running: false, error: "folderNotFound" })} />);
+    expect(noticeBanner()).toBeNull();
   });
 
   it("names a deep match's location like the breadcrumb, segment by segment", () => {

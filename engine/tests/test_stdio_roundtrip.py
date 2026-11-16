@@ -188,7 +188,8 @@ def test_engine_exits_cleanly_when_stdin_closes(engine: Engine) -> None:
 # The real engine with a file system whose Documents folder is a test folder, whose "SLOW"
 # folder takes minutes to enumerate (1 ms per entry), so a listing is still running when the
 # test sends its next request, whose "HANG" folder blocks for a minute without checking its
-# cancel token, and whose "NOTREADY" folder is on a drive that isn't ready.
+# cancel token, whose "NOTREADY" folder is on a drive that isn't ready, and in which every real
+# folder under a "SLOWTREE" folder takes 20 ms to list.
 TEST_FS_SCRIPT = """
 import os, sys, time
 sys.path.insert(0, os.getcwd())
@@ -213,6 +214,8 @@ class TestFileSystem(WindowsFileSystem):
     def list(self, path):
         if path == "HANG":
             return self._hang()
+        if os.sep + "SLOWTREE" in path:
+            time.sleep(0.02)  # a real folder that is slow to list, so its walk is still running
         return self._slow() if path == "SLOW" else super().list(path)
 
     def _hang(self):
@@ -603,3 +606,110 @@ def test_a_newer_search_replaces_the_running_one(test_fs_engine: Engine, tmp_pat
     assert test_fs_engine.read() == {"id": "r3", "type": "cancelled"}
     assert test_fs_engine.lines.empty()
     assert no_schema_violations(tmp_path)
+
+
+# ----- cancel and the permission notice (spec 2.3 I/O matrix) ---------------------
+
+
+def make_slow_tree(tmp_path: Path, folders: int = 200) -> Path:
+    """A real tree whose walk takes seconds under TEST_FS_SCRIPT: a match in every folder."""
+    root = tmp_path / "SLOWTREE"
+    root.mkdir()
+    (root / "report.txt").write_bytes(b"")
+    for i in range(folders):
+        sub = root / f"sub {i:03}"
+        sub.mkdir()
+        (sub / f"report {i:03}.txt").write_bytes(b"")
+    return root
+
+
+def test_a_cancel_stops_a_running_search_with_cancelled_and_no_search_done(test_fs_engine: Engine, tmp_path: Path) -> None:
+    root = make_slow_tree(tmp_path)
+    test_fs_engine.send({"id": "k1", "type": "search", "text": "report", "folder": str(root)})
+    assert test_fs_engine.read()["type"] == "searchParsed"
+    first = test_fs_engine.read()  # the first batch, a quarter second into the walk
+    assert (first["id"], first["type"]) == ("k1", "nameMatches") and first["matches"]
+    # The cancel shares the search's id and has no reply of its own: cancelled answers both.
+    test_fs_engine.send({"id": "k1", "type": "cancel"})
+    rest = read_search(test_fs_engine, "k1")
+    assert rest[-1] == {"id": "k1", "type": "cancelled"}
+    assert {r["type"] for r in rest[:-1]} <= {"nameMatches"}  # at most a batch already on its way
+    found = len(first["matches"]) + sum(len(r["matches"]) for r in rest[:-1])
+    assert found < 100  # the walk stopped early: the whole tree holds 201 matches
+    # Nothing more arrives for k1: the next reply is the ping's.
+    test_fs_engine.send({"id": "k2", "type": "ping"})
+    assert test_fs_engine.read() == {"id": "k2", "type": "pong"}
+    assert test_fs_engine.close() == 0
+    assert test_fs_engine.lines.empty()
+    assert no_schema_violations(tmp_path)
+    assert "report" not in (tmp_path / "engine.log").read_text(encoding="utf-8")  # the text is never logged
+
+
+def test_a_cancel_for_a_finished_or_unknown_id_does_nothing(engine: Engine, tmp_path: Path) -> None:
+    docs = make_documents(tmp_path)
+    engine.send({"id": "k3", "type": "search", "text": "budget", "folder": str(docs)})
+    assert read_search(engine, "k3")[-1]["type"] == "searchDone"
+    # The race: the search finished before its cancel arrived. The engine ignores the cancel.
+    engine.send({"id": "k3", "type": "cancel"})
+    engine.send({"id": "nobody", "type": "cancel"})
+    engine.send({"id": "k4", "type": "ping"})
+    assert engine.read() == {"id": "k4", "type": "pong"}
+    assert engine.close() == 0
+    assert engine.lines.empty()
+    assert no_schema_violations(tmp_path)
+
+
+def test_a_cancel_violating_its_schema_is_rejected_with_no_id(test_fs_engine: Engine) -> None:
+    test_fs_engine.send({"id": "k5", "type": "search", "text": "f1", "folder": "SLOW"})
+    test_fs_engine.send({"id": "k5", "type": "cancel", "reason": "esc"})
+    # Never on the target's id: the running search with that id must get one terminal reply only.
+    assert test_fs_engine.read() == {"id": None, "type": "error", "code": "invalidRequest", "data": {}}
+    test_fs_engine.send({"id": "k5b", "type": "ping"})
+    assert test_fs_engine.read() == {"id": "k5b", "type": "pong"}  # the search is still running
+    assert test_fs_engine.close() == 0
+    assert test_fs_engine.read() == {"id": "k5", "type": "cancelled"}  # its one terminal reply
+    assert test_fs_engine.lines.empty()
+
+
+def test_a_cancel_stops_only_the_request_with_its_id_on_any_channel(test_fs_engine: Engine, tmp_path: Path) -> None:
+    test_fs_engine.send({"id": "k6", "type": "listFolder", "path": "SLOW"})
+    test_fs_engine.send({"id": "k7", "type": "cancel"})  # an id no channel is running
+    test_fs_engine.send({"id": "k8", "type": "ping"})
+    assert test_fs_engine.read() == {"id": "k8", "type": "pong"}
+    # The cancel for the listing's id stops it, as it would a search: the UI only cancels searches.
+    test_fs_engine.send({"id": "k6", "type": "cancel"})
+    assert test_fs_engine.read() == {"id": "k6", "type": "cancelled"}
+    assert test_fs_engine.close() == 0
+    assert test_fs_engine.lines.empty()
+
+
+def deny_listing(folder: Path) -> None:
+    subprocess.run(["icacls", str(folder), "/deny", "*S-1-1-0:(RD)"], check=True, capture_output=True)
+
+
+def allow_listing(folder: Path) -> None:
+    subprocess.run(["icacls", str(folder), "/remove:d", "*S-1-1-0"], check=True, capture_output=True)
+
+
+def test_a_denied_subfolder_is_skipped_with_the_permission_notice(engine: Engine, tmp_path: Path) -> None:
+    docs = tmp_path / "Docs"
+    private = docs / "Private"
+    private.mkdir(parents=True)
+    (docs / "report.pdf").write_bytes(b"")
+    (private / "report secret.pdf").write_bytes(b"")
+    deny_listing(private)
+    try:
+        engine.send({"id": "p1", "type": "search", "text": "report", "folder": str(docs)})
+        replies = read_search(engine, "p1")
+        for reply in replies:
+            assert_valid(reply)
+        assert [m["name"] for r in replies if r["type"] == "nameMatches" for m in r["matches"]] == ["report.pdf"]
+        assert replies[-1] == {
+            "id": "p1", "type": "searchDone", "notices": ["permissionSkipped"], "indexVersion": None, "indexingActive": False,
+        }
+        # Denied and nothing found: the empty outcome and the notice together.
+        engine.send({"id": "p2", "type": "search", "text": "xyz123", "folder": str(docs)})
+        done = read_search(engine, "p2")[-1]
+        assert (done["outcomeCode"], done["notices"]) == ("noMatches", ["permissionSkipped"])
+    finally:
+        allow_listing(private)

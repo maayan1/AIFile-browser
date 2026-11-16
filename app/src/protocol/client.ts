@@ -5,6 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
+  Cancel,
   Cancelled,
   ErrorMessage,
   FolderListing,
@@ -24,7 +25,7 @@ import type {
   StatusReport,
 } from "./generated";
 
-/** Requests the UI may send; the client adds the `id`. */
+/** Requests the UI may send; the client adds the `id`. A `cancel` goes through `cancel(id)`. */
 export type Request =
   | Omit<Ping, "id">
   | Omit<Status, "id">
@@ -34,7 +35,7 @@ export type Request =
   | Omit<Search, "id">;
 /**
  * Terminal replies, matched to a request by `id`. `cancelled` ends a request that a newer one on
- * the same engine channel replaced (latest wins).
+ * the same engine channel replaced (latest wins), or that a `cancel` with its id stopped.
  */
 export type Reply = Pong | StatusReport | FolderListing | Locations | SearchDone | Cancelled | ErrorMessage;
 /** Non-terminal replies: a `search` sends these on its id before its terminal reply (AD-15). */
@@ -137,14 +138,32 @@ export class ProtocolClient {
   /**
    * Sends a request whose replies come in several messages: `onMessage` gets each non-terminal
    * one (`searchParsed`, `nameMatches`) in order, and the promise resolves with the terminal
-   * reply. An engine restart rejects it with EngineStoppedError, as it does `request`.
+   * reply. An engine restart rejects it with EngineStoppedError, as it does `request`. `onId` is
+   * told the request's id before it is sent, so the caller can `cancel` it.
    */
-  stream(message: Request, onMessage: (message: StreamMessage) => void): Promise<Reply> {
-    return this.dispatch(message, onMessage);
+  stream(message: Request, onMessage: (message: StreamMessage) => void, onId?: (id: string) => void): Promise<Reply> {
+    return this.dispatch(message, onMessage, onId);
   }
 
-  private dispatch(message: Request, onMessage?: (message: StreamMessage) => void): Promise<Reply> {
+  /**
+   * Asks the engine to stop the request `id`. It only sends: a cancel has no reply of its own, and
+   * the request's own terminal reply ends it as usual: `cancelled`, unless its terminal reply had
+   * already been sent when the cancel arrived.
+   * An unknown or finished id does nothing. A failed send is ignored: an engine that isn't running
+   * ends every pending request through its restart anyway.
+   */
+  cancel(id: string): void {
+    const message: Cancel = { id, type: "cancel" };
+    this.transport.send(JSON.stringify(message)).catch(() => {});
+  }
+
+  private dispatch(
+    message: Request,
+    onMessage?: (message: StreamMessage) => void,
+    onId?: (id: string) => void,
+  ): Promise<Reply> {
     const id = this.newId();
+    onId?.(id);
     return new Promise<Reply>((resolve, reject) => {
       this.pending.set(id, { resolve, reject, onMessage });
       this.transport.send(JSON.stringify({ ...message, id })).catch((err: unknown) => {

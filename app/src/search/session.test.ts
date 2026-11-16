@@ -11,7 +11,16 @@ const AT_DOCS: Place = {
 };
 const AT_GONE: Place = { path: "C:\\gone", parent: "C:\\", segments: [{ kind: "folder", name: "gone", path: "C:\\gone" }] };
 /** The snapshot of a search just sent from Documents. */
-const SENT: SearchSnapshot = { open: true, root: AT_DOCS, running: true, parsed: null, matches: [], done: null, error: null };
+const SENT: SearchSnapshot = {
+  open: true,
+  root: AT_DOCS,
+  running: true,
+  parsed: null,
+  matches: [],
+  done: null,
+  stopped: false,
+  error: null,
+};
 
 /** A shell stand-in: records sent requests, lets the test push lines and state changes. */
 function fakeShell() {
@@ -120,10 +129,10 @@ describe("SearchSession", () => {
     // A new search starts with no error.
     session.search("report", AT_DOCS);
     expect(session.snapshot.error).toBeNull();
-    // A cancel is not an error.
+    // A cancel is not an error: the search stopped.
     shell.line({ id: "q2", type: "cancelled" });
     await flush();
-    expect(session.snapshot).toEqual({ ...SENT, running: false });
+    expect(session.snapshot).toEqual({ ...SENT, running: false, stopped: true });
   });
 
   it("stops running when the engine restarts, without logging an error", async () => {
@@ -199,20 +208,21 @@ describe("SearchSession", () => {
     expect(session.snapshot.matches.map((m) => m.name)).toEqual(["report.pdf"]);
   });
 
-  it("closes the view: back to the first snapshot, and late replies are dropped", async () => {
+  it("closes the view: a running search is cancelled, back to the first snapshot, late replies dropped", async () => {
     const { shell, session, seen } = await started();
     session.close(); // nothing open: no change
     expect(seen).toEqual([]);
+    expect(shell.sent).toEqual([]);
 
     session.search("report", AT_DOCS);
     shell.line(parsed("q1"));
     shell.line(batch("q1", ["report.pdf"]));
     session.close();
     expect(session.snapshot).toEqual(INITIAL_SEARCH);
-    // No cancel in 2.2: nothing more is sent, and what the engine still sends changes nothing.
-    expect(shell.sent.map((m) => m.type)).toEqual(["search"]);
+    // The cancel shares the search's id; what the engine still sends changes nothing.
+    expect(shell.sent.slice(1)).toEqual([{ id: "q1", type: "cancel" }]);
     shell.line(batch("q1", ["late.pdf"]));
-    shell.line(done("q1"));
+    shell.line({ id: "q1", type: "cancelled" });
     await flush();
     expect(session.snapshot).toEqual(INITIAL_SEARCH);
 
@@ -233,6 +243,112 @@ describe("SearchSession", () => {
     shell.state("restarting");
     await flush();
     expect(session.snapshot).toEqual(INITIAL_SEARCH);
+  });
+
+  it("cancel: sends cancel for the running search's id, stays running, then keeps the matches as stopped", async () => {
+    const { shell, session } = await started();
+    session.search("report", AT_DOCS);
+    shell.line(parsed("q1"));
+    shell.line(batch("q1", Array.from({ length: 30 }, (_, i) => `report ${i}.pdf`)));
+    session.cancel();
+    expect(shell.sent.slice(1)).toEqual([{ id: "q1", type: "cancel" }]);
+    expect(session.snapshot).toMatchObject({ open: true, running: true, stopped: false });
+    // A second Esc before the reply sends nothing more.
+    session.cancel();
+    expect(shell.sent).toHaveLength(2);
+    shell.line({ id: "q1", type: "cancelled" });
+    await flush();
+    expect(session.snapshot).toMatchObject({ open: true, running: false, stopped: true, done: null, error: null });
+    expect(session.snapshot.matches).toHaveLength(30);
+    // Nothing runs now: a cancel sends nothing.
+    session.cancel();
+    expect(shell.sent).toHaveLength(2);
+  });
+
+  it("cancel before any match: stopped with no matches and no outcome", async () => {
+    const { shell, session } = await started();
+    session.search("report", AT_DOCS);
+    session.cancel();
+    shell.line({ id: "q1", type: "cancelled" });
+    await flush();
+    expect(session.snapshot).toEqual({ ...SENT, running: false, stopped: true });
+  });
+
+  it("the race: a cancel sent as searchDone was on its way ends finished, not stopped", async () => {
+    const { shell, session } = await started();
+    session.search("report", AT_DOCS);
+    shell.line(parsed("q1"));
+    shell.line(batch("q1", ["report.pdf"]));
+    session.cancel();
+    shell.line(done("q1")); // the engine ignored the late cancel
+    await flush();
+    expect(session.snapshot).toMatchObject({ running: false, stopped: false, done: done("q1") });
+    expect(session.snapshot.matches).toHaveLength(1);
+  });
+
+  it("a new Enter replaces the search without a cancel and clears stopped", async () => {
+    const { shell, session } = await started();
+    session.search("report", AT_DOCS);
+    session.cancel();
+    shell.line({ id: "q1", type: "cancelled" });
+    await flush();
+    expect(session.snapshot.stopped).toBe(true);
+    session.search("photo", AT_DOCS);
+    expect(session.snapshot).toEqual(SENT);
+    // While q2 runs, Enter again: the engine's latest-wins ends q2, so no cancel is sent.
+    session.search("budget", AT_DOCS);
+    expect(shell.sent.map((m) => m.type)).toEqual(["search", "cancel", "search", "search"]);
+    shell.line({ id: "q2", type: "cancelled" }); // the replaced one: ignored, not "stopped"
+    await flush();
+    expect(session.snapshot).toEqual(SENT);
+    shell.line(parsed("q3", "budget"));
+    shell.line(batch("q3", ["budget.pdf"]));
+    shell.line(done("q3"));
+    await flush();
+    expect(session.snapshot).toMatchObject({ running: false, stopped: false });
+    expect(session.snapshot.matches.map((m) => m.name)).toEqual(["budget.pdf"]);
+    // And Esc now cancels the newest search's id only.
+    session.search("report", AT_DOCS);
+    session.cancel();
+    expect(shell.sent.at(-1)).toEqual({ id: "q4", type: "cancel" });
+  });
+
+  it("closing a finished or stopped search sends no cancel", async () => {
+    const { shell, session } = await started();
+    session.search("report", AT_DOCS);
+    shell.line(done("q1"));
+    await flush();
+    session.close();
+    session.search("report", AT_DOCS);
+    session.cancel();
+    shell.line({ id: "q2", type: "cancelled" });
+    await flush();
+    session.close();
+    expect(shell.sent.map((m) => m.type)).toEqual(["search", "search", "cancel"]);
+    expect(session.snapshot).toEqual(INITIAL_SEARCH);
+  });
+
+  it("traces a sent cancel by id, never the text", async () => {
+    const trace = vi.fn();
+    const { shell, session } = await started(trace);
+    session.search("secret words", AT_DOCS);
+    session.cancel();
+    shell.line({ id: "q1", type: "cancelled" });
+    await flush();
+    expect(trace.mock.calls).toEqual([
+      ["q1", "cancel"],
+      ["q1", "cancelled"],
+    ]);
+  });
+
+  it("keeps the engine's notices with the results", async () => {
+    const { shell, session } = await started();
+    session.search("report", AT_DOCS);
+    shell.line(batch("q1", ["report.pdf"]));
+    shell.line({ ...done("q1"), notices: ["permissionSkipped"] });
+    await flush();
+    expect(session.snapshot.done?.notices).toEqual(["permissionSkipped"]);
+    expect(session.snapshot.stopped).toBe(false);
   });
 
   it("stops notifying once stopped", async () => {

@@ -13,7 +13,7 @@ import pytest
 
 from core.cancel import Cancelled, CancelToken
 from core.ports.filesystem import FILE_ATTRIBUTE_HIDDEN
-from core.search import BATCH_SIZE, FLUSH_AFTER, NO_MATCHES, name_search, parse_query
+from core.search import BATCH_SIZE, FLUSH_AFTER, NO_MATCHES, PERMISSION_SKIPPED, name_search, parse_query
 from core.search.query import normalize
 from tests.test_browse_core import ISO_LOCAL, file, folder
 from tests.test_walk import CLOUD_FOLDER, WalkFs
@@ -274,7 +274,72 @@ def test_an_unreadable_subfolder_is_skipped_and_the_search_goes_on() -> None:
     messages = run(fs, "report")
     assert_reply_order(messages)
     assert matched(messages) == ["report.txt"]
-    assert messages[-1]["notices"] == []  # the permission notice is Story 2.3
+    assert messages[-1]["notices"] == [PERMISSION_SKIPPED]
+
+
+# ----- the permission notice (Story 2.3 I/O matrix) ------------------------------------
+
+
+def test_a_denied_subfolder_adds_the_permission_notice_to_the_results() -> None:
+    private = DOCS + r"\Private"
+    fs = WalkFs({DOCS: [folder("Private"), file("report.pdf")], private: [file("report secret.pdf")]}, denied={private})
+    messages = run(fs, "report")
+    assert_reply_order(messages)
+    assert matched(messages) == ["report.pdf"]
+    assert messages[-1] == {
+        "type": "searchDone",
+        "notices": ["permissionSkipped"],
+        "indexVersion": None,
+        "indexingActive": False,
+    }
+
+
+def test_only_denied_subfolders_and_no_match_send_no_matches_and_the_notice() -> None:
+    fs = WalkFs({DOCS: [folder("Private"), folder("Hr"), file("photo.jpg")]}, denied={DOCS + r"\Private", DOCS + r"\Hr"})
+    messages = run(fs, "report")
+    assert_reply_order(messages)
+    assert matched(messages) == []
+    assert messages[-1]["outcomeCode"] == NO_MATCHES
+    assert messages[-1]["notices"] == [PERMISSION_SKIPPED]  # once, however many were denied
+
+
+def test_a_deep_denied_subfolder_and_a_network_denial_count_too() -> None:
+    a, deep = DOCS + r"\a", DOCS + r"\a\Private"
+    fs = WalkFs({DOCS: [folder("a")], a: [folder("Private"), file("report.txt")]}, denied={deep})
+    assert run(fs, "report")[-1]["notices"] == [PERMISSION_SKIPPED]
+
+    class NetworkDenied(WalkFs):
+        def list(self, path: str):  # type: ignore[no-untyped-def]
+            if path == a:
+                raise OSError(None, "Network access is denied", None, 65)
+            return WalkFs.list(self, path)
+
+    fs = NetworkDenied({DOCS: [folder("a"), file("report.txt")], a: []})
+    assert run(fs, "report")[-1]["notices"] == [PERMISSION_SKIPPED]
+
+
+def test_a_subfolder_failing_for_another_reason_is_skipped_with_no_notice() -> None:
+    gone = DOCS + r"\Gone"
+
+    class Unreadable(WalkFs):
+        def list(self, path: str):  # type: ignore[no-untyped-def]
+            if path == gone:
+                raise OSError(None, "The device is not ready", None, 21)  # PermissionError in Python
+            return WalkFs.list(self, path)
+
+    for fs in [
+        WalkFs({DOCS: [folder("Broken"), file("report.txt")], DOCS + r"\Broken": [file("x")]}, failing={DOCS + r"\Broken"}),
+        Unreadable({DOCS: [folder("Gone"), file("report.txt")]}),
+    ]:
+        messages = run(fs, "report")
+        assert matched(messages) == ["report.txt"]
+        assert messages[-1]["notices"] == []
+
+
+def test_a_readable_tree_has_no_notice() -> None:
+    fs = WalkFs({DOCS: [folder("a"), file("photo.jpg")], DOCS + r"\a": [file("report.txt")]})
+    assert run(fs, "report")[-1]["notices"] == []
+    assert run(fs, "xyz")[-1]["notices"] == []
 
 
 # ----- the search handler ----------------------------------------------------------
@@ -307,6 +372,13 @@ def test_the_handler_passes_the_no_matches_outcome_on_unchanged() -> None:
         "indexVersion": None,
         "indexingActive": False,
     }
+    schema("searchDone").validate(messages[-1])
+
+
+def test_the_handler_passes_the_permission_notice_on_unchanged() -> None:
+    fs = WalkFs({DOCS: [folder("Private"), file("report.pdf")]}, denied={DOCS + r"\Private"})
+    messages = handle(fs, {"id": "q6", "type": "search", "text": "report", "folder": DOCS})
+    assert messages[-1] == {"id": "q6", "type": "searchDone", "notices": ["permissionSkipped"], "indexVersion": None, "indexingActive": False}
     schema("searchDone").validate(messages[-1])
 
 

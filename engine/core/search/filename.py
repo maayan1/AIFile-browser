@@ -2,8 +2,10 @@
 
 Walks the folder with the one walker (`core.walk.walk`), so `is_candidate()` and the
 RECALL_ON_OPEN rule apply, and never opens a file. The root itself is never a match. A subfolder
-that can't be read is skipped (its notice arrives in Story 2.3); a root that can't be resolved or
-listed raises the port's OSError before anything is sent.
+that can't be read is skipped and the walk goes on; when at least one was skipped for permission
+(its error maps to `accessDenied`), `searchDone.notices` carries `permissionSkipped`, with or
+without an outcome. Other subfolder errors are skipped with no notice. A root that can't be
+resolved or listed raises the port's OSError before anything is sent.
 
 The replies go out through `emit`, in a fixed order: `searchParsed`, then one or more
 `nameMatches` batches (the last may be empty), and the caller sends the terminal `searchDone` this
@@ -22,6 +24,7 @@ from typing import Any
 
 from core.browse import listed_entry
 from core.cancel import CancelToken
+from core.errors import ACCESS_DENIED, folder_error_code
 from core.ports.filesystem import FileSystemPort, FsEntry
 from core.search.query import Query, matches, normalize
 from core.walk import child_path, walk
@@ -31,6 +34,9 @@ FLUSH_AFTER = 0.25  # seconds
 
 # The outcome codes a searchDone may carry (protocol/codes.json `outcomeCodes`).
 NO_MATCHES = "noMatches"
+
+# The notice codes a searchDone may carry (protocol/codes.json `noticeCodes`).
+PERMISSION_SKIPPED = "permissionSkipped"
 
 Emit = Callable[[dict[str, Any]], None]
 
@@ -64,6 +70,7 @@ def name_search(
     pending: list[dict[str, Any]] = []
     sent = 0  # batches
     found = 0  # matches in the batches sent
+    denied = False  # a subfolder was skipped for permission
     last_flush = clock()
 
     def flush() -> None:
@@ -75,6 +82,8 @@ def name_search(
         last_flush = clock()
 
     for walked in chain([first], walker):
+        if walked.error is not None and folder_error_code(walked.error) == ACCESS_DENIED:
+            denied = True
         for entry in walked.entries or ():  # an unreadable subfolder has none: it is skipped
             if matches(entry.name, needle):
                 pending.append(_match(walked.folder, entry))
@@ -86,7 +95,7 @@ def name_search(
 
     if pending or sent == 0:
         flush()
-    return _done(found)
+    return _done(found, [PERMISSION_SKIPPED] if denied else [])
 
 
 def _match(folder: str, entry: FsEntry) -> dict[str, Any]:
@@ -100,9 +109,9 @@ def _batch(matches: list[dict[str, Any]]) -> dict[str, Any]:
     return {"type": "nameMatches", "matches": matches}
 
 
-def _done(found: int) -> dict[str, Any]:
-    """The searchDone fields for a search that sent `found` matches. The notices arrive with Story 2.3."""
-    done: dict[str, Any] = {"type": "searchDone", "notices": [], "indexVersion": None, "indexingActive": False}
+def _done(found: int, notices: list[str] | None = None) -> dict[str, Any]:
+    """The searchDone fields for a search that sent `found` matches, with its notice codes."""
+    done: dict[str, Any] = {"type": "searchDone", "notices": notices or [], "indexVersion": None, "indexingActive": False}
     if found == 0:
         done["outcomeCode"] = NO_MATCHES
     return done

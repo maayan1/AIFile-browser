@@ -7,9 +7,10 @@ import type { BrowseActions } from "./session";
 // never navigates its own history or reloads the page (which would lose the app's Back history).
 // The keyboard's own Back, Forward and Refresh keys do the same. Alt+← stays Back under rtl, as in
 // File Explorer. Ctrl+E, Ctrl+F and F3 focus the Search Bar (UX-DR5); their default is prevented too, or
-// WebView2 opens its own find bar. While the search view is open, Esc leaves it (2.2), unless
-// something else handled it first (the row menu or the path field closing). Alt+D lives in the
-// breadcrumb; Enter, Shift+F10 and Ctrl+Shift+E on the rows.
+// WebView2 opens its own find bar. While the search view is open, Esc stops a running search or else
+// leaves the view (2.2, 2.3; the app shell decides which), unless something else handled it first
+// (the row menu or the path field closing). Alt+D lives in the breadcrumb; Enter, Shift+F10 and
+// Ctrl+Shift+E on the rows.
 
 export type Shortcut = "back" | "forward" | "up" | "reload" | "search";
 

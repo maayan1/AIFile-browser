@@ -8,5 +8,8 @@
   ],
   "outcomeCodes": [
     "noMatches"
+  ],
+  "noticeCodes": [
+    "permissionSkipped"
   ]
 }

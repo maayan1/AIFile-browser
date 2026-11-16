@@ -12,6 +12,12 @@
   thread only queues them, so ``ping`` is answered while a listing runs. A newer request on the
   channel cancels the older one's token, and the older one ends with ``cancelled``; one stuck
   inside an OS call past a short grace period is abandoned to a thread of its own.
+- ``cancel`` is answered here too, on the reader thread: it carries the id of the request to stop
+  and has no reply of its own. The channel whose latest request has that id and hasn't ended
+  cancels it exactly as a newer request would, so the target's terminal reply answers both: it
+  ends ``cancelled``, unless its terminal reply had already been sent when the cancel arrived. An
+  unknown or finished id does nothing. A cancel that breaks its schema gets an ``invalidRequest``
+  error with no id, never one on its target's id.
 - A streaming channel handler (``streaming=True``) may also send non-terminal replies on its
   request's id through ``emit`` before it returns its terminal reply (AD-15).
 """
@@ -32,6 +38,8 @@ from typing import Any, BinaryIO, Callable
 from core.cancel import Cancelled, CancelToken
 
 PROTOCOL_VERSION = 1
+
+CANCEL = "cancel"
 
 UNKNOWN_REQUEST = "unknownRequest"
 INVALID_REQUEST = "invalidRequest"
@@ -167,6 +175,7 @@ class Channel:
         self._max_abandoned = max_abandoned
         self._lock = threading.Lock()
         self._latest: CancelToken | None = None
+        self._latest_id: str | None = None  # the latest request's id, for `cancel`
         self._last_done: CancelToken | None = None  # the token of the last request that ended
         self._running: _Job | None = None
         self._abandoned = 0  # abandoned threads that haven't returned yet
@@ -184,15 +193,34 @@ class Channel:
             if previous is not None:
                 previous.cancel()
             self._latest = token
+            self._latest_id = request["id"]
             # Watch the previous request unless it has already ended (the usual case).
             watch = previous is not None and previous is not self._last_done
         self._queue.put(_Job(request, handler, token, streaming))
         if watch:
-            # Keyed on the token, not on what runs now: the worker may have taken the previous
-            # request off the queue without having marked it running yet.
-            timer = threading.Timer(self._abandon_after, self._abandon, args=(previous,))
-            timer.daemon = True
-            timer.start()
+            assert previous is not None
+            self._watch(previous)
+
+    def cancel(self, request_id: str) -> bool:
+        """Cancel the latest request if its id is `request_id` and it hasn't ended, exactly as a
+        newer request would: it ends ``cancelled``, unless its terminal reply had already been sent,
+        and that reply answers the cancel too. Anything else does nothing. Returns whether a
+        request was cancelled."""
+        with self._lock:
+            token = self._latest
+            if token is None or self._latest_id != request_id or token is self._last_done or token.cancelled:
+                return False
+            token.cancel()
+        self._watch(token)
+        return True
+
+    def _watch(self, token: CancelToken) -> None:
+        """Abandon the request `token` cancelled if it is still running after the grace period."""
+        # Keyed on the token, not on what runs now: the worker may have taken the request off the
+        # queue without having marked it running yet.
+        timer = threading.Timer(self._abandon_after, self._abandon, args=(token,))
+        timer.daemon = True
+        timer.start()
 
     @property
     def abandoned(self) -> int:
@@ -422,6 +450,8 @@ class StdioTransport:
             return error(None, INVALID_REQUEST)
 
         request_id, request_type = request["id"], request["type"]
+        if request_type == CANCEL:
+            return self._cancel(request)
         handler = HANDLERS.get(request_type)
         channelled = self._channel_of.get(request_type)
         if handler is None and channelled is None:
@@ -444,6 +474,21 @@ class StdioTransport:
         except Exception:
             log.exception("handler for %r failed", request_type)
             return error(request_id, INVALID_REQUEST)
+
+    def _cancel(self, request: Message) -> Message | None:
+        """Stop the request whose id `request` carries, on whichever channel runs it. No reply:
+        the target's terminal reply answers the cancel (None). An invalid cancel is answered with
+        no id, as an unparseable line is: its id is its target's, which must get one reply only."""
+        if self._validator is not None:
+            problem = self._validator.problem(request)
+            if problem:
+                log.warning("request cancel violates its schema: %s", problem)
+                return error(None, INVALID_REQUEST)
+        for channel in self._channels.values():
+            if channel.cancel(request["id"]):
+                log.info("channel %s: cancelled on request", channel.name)
+                break
+        return None
 
 
 def _parse(raw: bytes) -> Message | None:

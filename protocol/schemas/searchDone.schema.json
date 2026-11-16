@@ -7,7 +7,7 @@
     "id": { "type": "string", "minLength": 1 },
     "type": { "const": "searchDone" },
     "outcomeCode": { "description": "How the search ended, when that needs saying: noMatches when it finished having sent no match (EARS-03). Absent otherwise; listed in codes.json outcomeCodes.", "enum": ["noMatches"] },
-    "notices": { "description": "Notice codes to show with the results; none until Story 2.3.", "type": "array", "items": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9]*$" } },
+    "notices": { "description": "Notice codes to show with the results, outcome or not: permissionSkipped when at least one subfolder was skipped because it can't be read for permission. Listed in codes.json noticeCodes.", "type": "array", "items": { "enum": ["permissionSkipped"] } },
     "indexVersion": { "description": "The Index the results came from; null until content search arrives.", "type": "null" },
     "indexingActive": { "description": "Whether documents were still being read while the search ran.", "type": "boolean" }
   },

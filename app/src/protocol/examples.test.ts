@@ -12,7 +12,7 @@ const examples = import.meta.glob<Record<string, unknown>>("../../../protocol/ex
   eager: true,
   import: "default",
 });
-const codes = import.meta.glob<{ errorCodes: string[]; outcomeCodes: string[] }>("../../../protocol/codes.json", {
+const codes = import.meta.glob<{ errorCodes: string[]; outcomeCodes: string[]; noticeCodes: string[] }>("../../../protocol/codes.json", {
   eager: true,
   import: "default",
 });
@@ -57,6 +57,20 @@ describe("protocol examples", () => {
     };
     expect([...searchDone.properties.outcomeCode.enum].sort()).toEqual([...listed].sort());
     // The UI words every outcome code from the catalog: `search.<code>`.
+    for (const code of listed) expect(Object.hasOwn(catalog, `search.${code}`), code).toBe(true);
+  });
+
+  it("uses only notice codes listed in codes.json, each with its catalog sentence", () => {
+    const listed = Object.values(codes)[0].noticeCodes;
+    const used = Object.values(examples).flatMap((example) => (example.type === "searchDone" ? (example.notices as string[]) : []));
+    expect(used).toContain("permissionSkipped");
+    for (const code of used) expect(listed).toContain(code);
+    // The schema allows exactly the listed codes.
+    const searchDone = Object.entries(schemas).find(([file]) => file.endsWith("/searchDone.schema.json"))![1] as {
+      properties: { notices: { items: { enum: string[] } } };
+    };
+    expect([...searchDone.properties.notices.items.enum].sort()).toEqual([...listed].sort());
+    // The UI words every notice code from the catalog: `search.<code>`.
     for (const code of listed) expect(Object.hasOwn(catalog, `search.${code}`), code).toBe(true);
   });
 });
@@ -300,6 +314,42 @@ describe("ProtocolClient.stream", () => {
     await expect(done).rejects.toBeInstanceOf(EngineStoppedError);
     deliver('{"id":"q1","type":"nameMatches","matches":[]}');
     expect(seen).toHaveLength(1);
+  });
+
+  it("tells the caller the id before sending, and cancel sends a cancel with that id and no reply of its own", async () => {
+    const { transport, sent, deliver } = fakeTransport();
+    const client = new ProtocolClient(transport, () => "q1");
+    await client.start();
+    const ids: string[] = [];
+    const done = client.stream({ type: "search", text: "a", folder: "C:\\" }, () => {}, (id) => {
+      ids.push(id);
+      expect(sent).toEqual([]); // told before the request goes out
+    });
+    expect(ids).toEqual(["q1"]);
+    client.cancel("q1");
+    expect(sent.map((l) => JSON.parse(l))).toEqual([
+      { type: "search", text: "a", folder: "C:\\", id: "q1" },
+      { id: "q1", type: "cancel" },
+    ]);
+    // The search's own terminal reply answers both.
+    deliver('{"id":"q1","type":"cancelled"}');
+    await expect(done).resolves.toEqual({ id: "q1", type: "cancelled" });
+    expect((client as unknown as { pending: Map<string, unknown> }).pending.size).toBe(0);
+  });
+
+  it("ignores a cancel whose send fails", async () => {
+    const transport: Transport = {
+      send: async () => {
+        throw "engine is not running";
+      },
+      subscribe: async () => () => {},
+      lastReady: async () => null,
+      ...runningState,
+    };
+    const client = new ProtocolClient(transport);
+    await client.start();
+    expect(() => client.cancel("q1")).not.toThrow();
+    await Promise.resolve();
   });
 
   it("never resolves a plain request with a non-terminal reply", async () => {
