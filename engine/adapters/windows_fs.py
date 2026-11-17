@@ -236,3 +236,18 @@ class WindowsFileSystem:
                     attributes=attributes,
                     reparse_tag=getattr(st, "st_reparse_tag", 0),
                 )
+
+    def create_file(self, path: str) -> None:
+        if not os.path.isabs(path):
+            raise FileNotFoundError(path)
+        # O_EXCL is CreateFileW's CREATE_NEW: the OS creates the file only if nothing has that name,
+        # in one step, so nothing is ever overwritten. No mode bits: the folder's ACL decides.
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOINHERIT", 0)
+        try:
+            fd = os.open(path, flags)
+        except PermissionError:
+            # CREATE_NEW over an existing folder (or a read-only file) fails as access denied.
+            if os.path.lexists(path):
+                raise FileExistsError(path) from None
+            raise
+        os.close(fd)

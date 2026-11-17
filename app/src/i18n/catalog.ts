@@ -43,6 +43,21 @@ export const catalog = {
   "menu.open": "Open",
   "menu.showInFolder": "Show in folder",
 
+  // New file (the one write: an empty file in the listed folder). Each error code a createFile can
+  // end with has a `newFile.<code>` sentence; anything else is `newFile.failed`.
+  "newFile.button": "New file",
+  "newFile.dialog": "New file",
+  "newFile.name": "File name",
+  "newFile.create": "Create",
+  "newFile.cancel": "Cancel",
+  "newFile.invalidName":
+    "That name can't be used. Type one file name without slashes, colons or other special characters, and don't end it with a dot or a space.",
+  "newFile.fileExists": "There's already a file or folder with that name here.",
+  "newFile.folderNotFound": "This folder doesn't exist anymore.",
+  "newFile.accessDenied": "You don't have permission to create files in this folder.",
+  "newFile.folderUnavailable": "This folder can't be reached right now.",
+  "newFile.failed": "The file couldn't be created. Try again.",
+
   // Browse list states. The error keys are the engine's error codes.
   "browse.empty": "This folder is empty.",
   "browse.folderNotFound": "This folder doesn't exist.",

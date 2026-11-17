@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FileCreated",
+  "description": "Reply to createFile: the new, empty file now exists.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "fileCreated" },
+    "path": { "description": "The new file's full path: the normalized folder joined with name.", "type": "string", "minLength": 1 },
+    "name": { "description": "The new file's name, as created.", "type": "string", "minLength": 1 }
+  },
+  "required": ["id", "type", "path", "name"],
+  "additionalProperties": false
+}

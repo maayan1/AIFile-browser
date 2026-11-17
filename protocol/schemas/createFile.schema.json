@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CreateFile",
+  "description": "Request: create one new, empty file directly in a listed folder. The only request that writes to the user's files: it never overwrites, never creates a missing folder and never changes an existing item. Its own channel, so it never cancels a listing or a search. The reply is fileCreated, or an error: invalidName (empty, . or .., a path separator or other character Windows forbids, a trailing dot or space, a reserved device name such as CON, or longer than 255 characters), fileExists (a file or folder of that name, in any casing, is already there), or the folder error listFolder would send for folder (folderNotFound for a missing folder: no folder is ever created), with accessDenied also when the folder can't be written to.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "createFile" },
+    "folder": { "description": "The folder to create the file in, as listed; normalized by the engine as listFolder's path is.", "type": "string", "minLength": 1 },
+    "name": { "description": "The new file's name: one name, never a path. The engine checks it; the UI trims it first.", "type": "string" }
+  },
+  "required": ["id", "type", "folder", "name"],
+  "additionalProperties": false
+}

@@ -56,6 +56,14 @@ def test_engine_error_codes_are_listed_in_codes_json() -> None:
     codes = set(load(PROTOCOL_DIR / "codes.json")["errorCodes"])
     assert {stdio_transport.UNKNOWN_REQUEST, stdio_transport.INVALID_REQUEST} <= codes
     assert {main.FOLDER_NOT_FOUND, main.ACCESS_DENIED, main.FOLDER_UNAVAILABLE} <= codes
+    assert {main.INVALID_NAME, main.FILE_EXISTS} <= codes
+
+
+def test_every_create_file_error_code_has_a_catalog_sentence() -> None:
+    # The UI words each code a createFile can end with from the catalog: `newFile.<code>`.
+    catalog = CATALOG.read_text(encoding="utf-8")
+    for code in ["invalidName", "fileExists", "folderNotFound", "accessDenied", "folderUnavailable"]:
+        assert f'"newFile.{code}":' in catalog, code
 
 
 def outcome_codes() -> set[str]:

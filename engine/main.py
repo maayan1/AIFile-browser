@@ -28,6 +28,7 @@ from adapters.stdio_transport import (
 from adapters.windows_fs import WindowsFileSystem
 from core.browse import FolderUnreadable, list_folder, show_in_folder
 from core.cancel import CancelToken
+from core.create import FILE_EXISTS, INVALID_NAME, CreateRefused, create_file
 from core.errors import (  # re-exported: the folder codes and their mapping live in core
     ACCESS_DENIED,
     DENIED_WINERRORS,
@@ -112,6 +113,23 @@ def list_locations_handler(fs: FileSystemPort) -> ChannelHandler:
     return handle
 
 
+def create_file_handler(fs: FileSystemPort) -> ChannelHandler:
+    """The `createFile` handler: fileCreated, or why not as a protocol code. The name is never
+    logged (it is the user's words, like a search)."""
+
+    def handle(request: Message, token: CancelToken) -> Message:
+        try:
+            created = create_file(fs, request["folder"], request["name"], token)
+        except CreateRefused as exc:
+            cause = exc.__cause__
+            log.info("createFile: %s (winerror %s)", exc.code, getattr(cause, "winerror", None))
+            return error(request["id"], exc.code)
+        log.info("createFile: created")
+        return {"id": request["id"], "type": "fileCreated", **created}
+
+    return handle
+
+
 def search_handler(fs: FileSystemPort) -> StreamingHandler:
     """The `search` handler: searchParsed and nameMatches through `emit`, then searchDone, or the
     folder error as a protocol code. The search text is never logged."""
@@ -145,6 +163,9 @@ def main() -> int:
     transport.register_channel("listLocations", "locations", list_locations_handler(fs))
     # Its own channel, latest wins: a new search replaces the running one and nothing else.
     transport.register_channel("search", "search", search_handler(fs), streaming=True)
+    # Its own channel: creating a file must never cancel a listing or a search, nor they it, and a
+    # write to a share that doesn't answer must not hold up the reader thread's pings.
+    transport.register_channel("createFile", "createFile", create_file_handler(fs))
     transport.send({"id": None, "type": "ready", "protocolVersion": PROTOCOL_VERSION})
     try:
         transport.serve_forever()

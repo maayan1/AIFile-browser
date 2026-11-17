@@ -106,3 +106,15 @@ class FileSystemPort(Protocol):
         PermissionError when it can't be read.
         """
         ...
+
+    def create_file(self, path: str) -> None:
+        """Create the new, empty file `path` (absolute, in an existing folder), atomically: when
+        anything named `path` already exists, in any casing, nothing changes. Never creates a
+        folder, and sets no permissions of its own: the file gets what its folder gives new files.
+        The port's only write (createFile; see core/create.py).
+
+        Raises FileExistsError when an item of that name exists, FileNotFoundError for a relative
+        path or a missing folder, PermissionError when the folder can't be written to, or another
+        OSError (drive not ready, share unreachable, a name the OS refuses).
+        """
+        ...

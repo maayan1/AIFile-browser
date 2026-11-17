@@ -55,7 +55,16 @@ export interface BrowseActions {
   /** Lists the current folder again (F5), keeping history. */
   reload(): void;
   clearPathError(): void;
+  /**
+   * Creates the empty file `name` in the listed folder `folder` (the engine checks the name and
+   * never overwrites). On success, while that folder is still the current one, lists it again with
+   * the new file selected.
+   */
+  createFile(folder: string, name: string): Promise<CreateFileResult>;
 }
+
+/** How a New file request ended: the new file's path, or the engine's error code (`failed` otherwise). */
+export type CreateFileResult = { created: true; path: string } | { created: false; code: string };
 
 /** A child of a listed folder: the one path the UI builds itself (the engine normalizes it). */
 export function childPath(folder: string, name: string): string {
@@ -172,6 +181,24 @@ export class BrowseSession implements BrowseActions {
 
   clearPathError(): void {
     if (this.current.pathError !== null) this.update({ pathError: null });
+  }
+
+  createFile(folder: string, name: string): Promise<CreateFileResult> {
+    return this.client.request({ type: "createFile", folder, name }).then(
+      (reply): CreateFileResult => {
+        if (reply.type === "fileCreated") {
+          // The refresh: the folder again, with the new file selected and scrolled into view.
+          if (this.active && this.location === folder) this.go({ type: "showInFolder", path: reply.path }, "push");
+          return { created: true, path: reply.path };
+        }
+        return { created: false, code: reply.type === "error" ? reply.code : "failed" };
+      },
+      (err: unknown): CreateFileResult => {
+        // A restart ended the request; whether the file was made, the next listing will show.
+        if (!(err instanceof EngineStoppedError)) console.error("createFile request failed", err);
+        return { created: false, code: "failed" };
+      },
+    );
   }
 
   stop(): void {

@@ -343,7 +343,7 @@ The Preview Panel sits beside the file list and the Result List. When the user s
 | NFR-5 | Baseline PC | Windows 11 64-bit, 8 GB RAM, 4-core processor, no dedicated graphics or AI chip (GPU or NPU). Windows 11 is the only supported platform. |
 | NFR-6 | Resource use | While indexing, the app keeps the PC usable: background-priority work and **≤ 2 GB RAM** for the whole app. `[ASSUMPTION: RAM ceiling]` |
 | NFR-7 | Installer size | **≤ 1 GB**, including the Python runtime and the model. |
-| NFR-8 | Data safety | The app **never modifies, moves or deletes user files**. It only reads them. A crash or power loss never leaves a corrupted Index. Worst case, the Index rebuilds itself. |
+| NFR-8 | Data safety | The app **never modifies, moves or deletes user files**. It only reads them, with one exception: New file creates a new, empty file (see C-4). A crash or power loss never leaves a corrupted Index. Worst case, the Index rebuilds itself. |
 | NFR-9 | Local security | The backend accepts requests only from the app itself and is not reachable from other devices. Index data is stored in the current user's Windows profile (for example `%LOCALAPPDATA%`), not in a shared location. |
 | NFR-10 | Error handling | Every error the user can hit (access denied, unreadable file, invalid path, backend not responding) shows a plain-language message in the interface language, with no stack traces or error codes. If the backend stops, the app shows a message and recovers without losing the Index. |
 | NFR-11 | Accessibility | Every core action (browse, search, set Filters, open, show in folder) works with the keyboard alone. `[ASSUMPTION]` |
@@ -359,6 +359,7 @@ The Preview Panel sits beside the file list and the Result List. When the user s
 - **C-3. One AI model.** The MVP uses exactly one local embedding model. No generative models, OCR (optical character recognition) models or other AI models. Date Phrases (FR-14) are recognized by fixed rules.
   - If no model meets every constraint, they give way in this order. The license (NFR-12) and offline operation (C-2) never give way. Next is search quality (SM-1 ≥ 80%), then installer size (NFR-7), then speed (NFR-2, NFR-4).
 - **C-4. Read-only on user files.** See NFR-8. Any feature that writes to user files is outside the MVP.
+  - **Exception (2026-11-16): New file.** The top bar's New file button creates one new, empty file in the listed folder (the `createFile` request). It is the only write, and it stays narrow: the name must be a single valid file name (never a path), the file is created only if nothing with that name exists (it never overwrites), no missing folder is ever created, and nothing existing is modified, moved, renamed or deleted. The row menu stays Open and Show in folder only.
 - **C-5. Technology stack (author decision).**
 
   | Layer | Choice |

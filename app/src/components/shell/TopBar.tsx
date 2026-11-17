@@ -1,6 +1,7 @@
 import { ArrowLeft, ArrowRight, ArrowUp, LoaderCircle, Search, Settings, X } from "lucide-react";
 import type { ComponentType, KeyboardEvent, RefObject } from "react";
 import { Breadcrumb } from "@/browse/Breadcrumb";
+import { NewFile } from "@/browse/NewFile";
 import type { BrowseActions, BrowseSnapshot, Place } from "@/browse/session";
 import { Button } from "@/components/ui/button";
 import { t, type CatalogKey } from "@/i18n/catalog";
@@ -72,6 +73,12 @@ export function TopBar({
         text={searchText}
         onText={onSearchText}
         onClear={onClearSearch}
+      />
+
+      <NewFile
+        // Only while a folder's listing is on screen: not while one loads, fails or a search shows.
+        folder={browse && !browse.loading && browse.listing && !search?.open ? browse.listing.path : undefined}
+        onCreate={actions ? (folder, name) => actions.createFile(folder, name) : undefined}
       />
 
       <div className="ms-1">

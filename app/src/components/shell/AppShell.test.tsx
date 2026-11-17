@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { INITIAL_SNAPSHOT, type BrowseActions, type BrowseSnapshot } from "@/browse/session";
 import { catalog, t } from "@/i18n/catalog";
 import type { FolderListing } from "@/protocol/generated";
+import { INITIAL_SEARCH } from "@/search/session";
 import { AppShell } from "./AppShell";
 
 // Vitest runs without globals, so testing-library can't clean up on its own.
@@ -74,6 +75,7 @@ describe("AppShell", () => {
       up: vi.fn(),
       reload: vi.fn(),
       clearPathError: vi.fn(),
+      createFile: vi.fn(),
     };
     const { container } = render(<AppShell bannerVisible={false} browse={browse} actions={actions} />);
 
@@ -146,5 +148,38 @@ describe("AppShell", () => {
 
     expect(shown.length).toBeGreaterThan(0);
     for (const text of shown) expect(values, `"${text}" is not from the catalog`).toContain(text);
+  });
+});
+
+describe("AppShell New file", () => {
+  const docs = "C:\\Users\\dana\\Documents";
+  const listing: FolderListing = {
+    id: "u1",
+    type: "folderListing",
+    path: docs,
+    parent: "C:\\Users\\dana",
+    segments: [{ kind: "knownFolder", code: "documents", path: docs }],
+    entries: [],
+  };
+  const browse: BrowseSnapshot = { ...INITIAL_SNAPSHOT, listing, place: listing, location: docs };
+  const newFile = () => screen.getByRole<HTMLButtonElement>("button", { name: t("newFile.button") });
+
+  it("creates the file in the listed folder through the browse session", () => {
+    const createFile = vi.fn<BrowseActions["createFile"]>(async () => ({ created: true, path: `${docs}\\a.txt` }));
+    const actions = { createFile } as unknown as BrowseActions;
+    render(<AppShell bannerVisible={false} browse={browse} actions={actions} />);
+    expect(newFile().disabled).toBe(false);
+    fireEvent.click(newFile());
+    fireEvent.change(screen.getByRole("textbox", { name: t("newFile.name") }), { target: { value: "a.txt" } });
+    fireEvent.click(screen.getByRole("button", { name: t("newFile.create") }));
+    expect(createFile).toHaveBeenCalledExactlyOnceWith(docs, "a.txt");
+  });
+
+  it("is disabled while the folder loads and while the search view is open", () => {
+    const actions = { createFile: vi.fn() } as unknown as BrowseActions;
+    const { rerender } = render(<AppShell bannerVisible={false} browse={{ ...browse, loading: true }} actions={actions} />);
+    expect(newFile().disabled).toBe(true);
+    rerender(<AppShell bannerVisible={false} browse={browse} actions={actions} search={{ ...INITIAL_SEARCH, open: true }} />);
+    expect(newFile().disabled).toBe(true);
   });
 });

@@ -713,3 +713,50 @@ def test_a_denied_subfolder_is_skipped_with_the_permission_notice(engine: Engine
         assert (done["outcomeCode"], done["notices"]) == ("noMatches", ["permissionSkipped"])
     finally:
         allow_listing(private)
+
+
+# ----- createFile ------------------------------------------------------------------------------
+
+
+def test_create_file_creates_an_empty_file_then_refuses_to_overwrite_it(engine: Engine, tmp_path: Path) -> None:
+    docs = make_documents(tmp_path)
+    engine.send({"id": "c1", "type": "createFile", "folder": str(docs).upper(), "name": "notes תקציב.txt"})
+    reply = engine.read()
+    assert_valid(reply)
+    assert reply == {"id": "c1", "type": "fileCreated", "path": str(docs / "notes תקציב.txt"), "name": "notes תקציב.txt"}
+    assert (docs / "notes תקציב.txt").read_bytes() == b""
+
+    (docs / "notes תקציב.txt").write_bytes(b"typed later")
+    engine.send({"id": "c2", "type": "createFile", "folder": str(docs), "name": "NOTES תקציב.TXT"})
+    assert engine.read() == {"id": "c2", "type": "error", "code": "fileExists", "data": {}}
+    assert (docs / "notes תקציב.txt").read_bytes() == b"typed later"
+
+    # The new file is in the next listing, so the UI's refresh shows it.
+    engine.send({"id": "c3", "type": "listFolder", "path": str(docs)})
+    assert "notes תקציב.txt" in {e["name"] for e in engine.read()["entries"]}
+    assert no_schema_violations(tmp_path)
+
+
+@pytest.mark.parametrize("name", ["", "..", r"..\escaped.txt", "../escaped.txt", r"C:\escaped.txt", "a:b", "CON"])
+def test_create_file_rejects_invalid_names_and_path_traversal(engine: Engine, tmp_path: Path, name: str) -> None:
+    docs = make_documents(tmp_path)
+    before = sorted(p.name for p in tmp_path.rglob("*"))
+    engine.send({"id": "c4", "type": "createFile", "folder": str(docs), "name": name})
+    assert engine.read() == {"id": "c4", "type": "error", "code": "invalidName", "data": {}}
+    assert sorted(p.name for p in tmp_path.rglob("*")) == before
+
+
+def test_create_file_in_a_missing_folder_is_folder_not_found(engine: Engine, tmp_path: Path) -> None:
+    engine.send({"id": "c5", "type": "createFile", "folder": str(tmp_path / "gone"), "name": "notes.txt"})
+    assert engine.read() == {"id": "c5", "type": "error", "code": "folderNotFound", "data": {}}
+    assert not (tmp_path / "gone").exists()
+
+
+def test_create_file_runs_beside_a_listing_without_cancelling_it(test_fs_engine: Engine) -> None:
+    docs = test_fs_engine.documents  # type: ignore[attr-defined]
+    test_fs_engine.send({"id": "c6", "type": "listFolder", "path": "SLOW"})  # still running below
+    test_fs_engine.send({"id": "c7", "type": "createFile", "folder": str(docs), "name": "new.txt"})
+    assert test_fs_engine.read()["id"] == "c7"  # answered while the listing runs
+    assert (docs / "new.txt").is_file()
+    test_fs_engine.send({"id": "c6", "type": "cancel"})
+    assert test_fs_engine.read() == {"id": "c6", "type": "cancelled"}

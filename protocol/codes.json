@@ -4,7 +4,9 @@
     "invalidRequest",
     "folderNotFound",
     "accessDenied",
-    "folderUnavailable"
+    "folderUnavailable",
+    "invalidName",
+    "fileExists"
   ],
   "outcomeCodes": [
     "noMatches"

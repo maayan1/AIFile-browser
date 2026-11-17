@@ -33,6 +33,7 @@ function leavingSearch(actions: BrowseActions, browse: BrowseSnapshot | undefine
     openFile: (path) => actions.openFile(path),
     reload: () => actions.reload(),
     clearPathError: () => actions.clearPathError(),
+    createFile: (folder, name) => actions.createFile(folder, name),
   };
 }
 

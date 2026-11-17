@@ -373,3 +373,70 @@ def test_drives_are_in_letter_order_and_include_the_system_drive() -> None:
         assert drive.label is None or drive.label
     assert [d.letter for d in fs.drives(system.lower())] == [system]
     assert fs.drives("?") == []
+
+
+# ----- create_file: the port's only write (createFile) -----------------------------------------
+
+
+def deny_adding_files(path: Path) -> None:
+    # WD on a folder is "create files / write data": the folder can still be listed.
+    subprocess.run(["icacls", str(path), "/deny", "*S-1-1-0:(WD)"], check=True, capture_output=True)
+
+
+def test_create_file_creates_one_empty_file_with_a_hebrew_name(tmp_path: Path) -> None:
+    target = tmp_path / HEBREW_DOC
+    WindowsFileSystem().create_file(str(target))
+    assert target.is_file()
+    assert target.stat().st_size == 0
+    assert [p.name for p in tmp_path.iterdir()] == [HEBREW_DOC]
+
+
+def test_create_file_never_overwrites_a_file_in_any_casing(tmp_path: Path) -> None:
+    existing = tmp_path / "Notes.txt"
+    existing.write_bytes(b"keep me")
+    for typed in ("Notes.txt", "NOTES.TXT"):
+        with pytest.raises(FileExistsError):
+            WindowsFileSystem().create_file(str(tmp_path / typed))
+    assert existing.read_bytes() == b"keep me"
+    assert [p.name for p in tmp_path.iterdir()] == ["Notes.txt"]
+
+
+def test_create_file_over_a_read_only_file_or_a_folder_is_file_exists(tmp_path: Path) -> None:
+    read_only = tmp_path / "locked.txt"
+    read_only.write_bytes(b"keep me")
+    read_only.chmod(0o444)
+    (tmp_path / "Photos").mkdir()
+    try:
+        for name in ("locked.txt", "Photos"):
+            with pytest.raises(FileExistsError):
+                WindowsFileSystem().create_file(str(tmp_path / name))
+        assert read_only.read_bytes() == b"keep me"
+        assert (tmp_path / "Photos").is_dir()
+    finally:
+        read_only.chmod(0o666)
+
+
+def test_create_file_never_creates_a_missing_folder(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        WindowsFileSystem().create_file(str(tmp_path / "gone" / "notes.txt"))
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_create_file_rejects_a_relative_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        WindowsFileSystem().create_file("notes.txt")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_create_file_in_a_folder_that_denies_adding_files_raises_permission_error(tmp_path: Path) -> None:
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    deny_adding_files(locked)
+    try:
+        with pytest.raises(PermissionError) as info:
+            WindowsFileSystem().create_file(str(locked / "notes.txt"))
+        assert not isinstance(info.value, FileExistsError)
+    finally:
+        allow_listing(locked)
+    assert list(locked.iterdir()) == []

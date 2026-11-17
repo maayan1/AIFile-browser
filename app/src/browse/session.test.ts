@@ -494,3 +494,53 @@ describe("childPath", () => {
     expect(childPath("\\\\server\\share\\", "Team")).toBe("\\\\server\\share\\Team");
   });
 });
+
+describe("BrowseSession.createFile", () => {
+  const created = (id: string, name: string, folder = DOCS) =>
+    JSON.stringify({ id, type: "fileCreated", path: `${folder}\\${name}`, name });
+
+  it("sends createFile, then lists the folder again with the new file selected", async () => {
+    const { shell, session, seen } = await inDocuments();
+    const result = session.createFile(DOCS, "notes.txt");
+    expect(shell.sent.at(-1)).toEqual({ id: "u3", type: "createFile", folder: DOCS, name: "notes.txt" });
+    shell.line(created("u3", "notes.txt"));
+    expect(await result).toEqual({ created: true, path: `${DOCS}\\notes.txt` });
+
+    // The refresh: showInFolder on the new file, so the reply selects it.
+    expect(shell.sent.at(-1)).toEqual({ id: "u4", type: "showInFolder", path: `${DOCS}\\notes.txt` });
+    shell.line(JSON.stringify({ ...JSON.parse(listing("u4", DOCS, ["a.txt", "notes.txt"])), selected: "notes.txt" }));
+    await flush();
+    const last = seen.at(-1)!;
+    expect(last.listing?.entries.map((e) => e.name)).toEqual(["a.txt", "notes.txt"]);
+    expect(last.listing?.selected).toBe("notes.txt");
+    expect(last.canBack).toBe(false); // the same folder: no history entry
+  });
+
+  it.each(["fileExists", "invalidName", "accessDenied", "folderNotFound"])(
+    "returns the engine's %s code and lists nothing",
+    async (code) => {
+      const { shell, session } = await inDocuments();
+      const result = session.createFile(DOCS, "notes.txt");
+      shell.line(failure("u3", code));
+      expect(await result).toEqual({ created: false, code });
+      expect(shell.sent.filter((m) => m.type === "showInFolder" || m.type === "listFolder")).toHaveLength(1);
+    },
+  );
+
+  it("doesn't pull the user back to the folder if they have left it meanwhile", async () => {
+    const { shell, session } = await inDocuments();
+    const result = session.createFile(DOCS, "notes.txt");
+    session.open(WORK);
+    shell.line(listing("u4", WORK));
+    shell.line(created("u3", "notes.txt"));
+    expect((await result).created).toBe(true);
+    expect(shell.sent.some((m) => m.type === "showInFolder")).toBe(false);
+  });
+
+  it("reports an engine restart as failed", async () => {
+    const { shell, session } = await inDocuments();
+    const result = session.createFile(DOCS, "notes.txt");
+    shell.state("restarting");
+    expect(await result).toEqual({ created: false, code: "failed" });
+  });
+});
