@@ -1,0 +1,40 @@
+{
+  "operation": "Create File",
+  "status": "implemented",
+  "request": "createFile",
+  "reply": "fileCreated",
+  "channel": "createFile",
+  "errorCodes": ["invalidName", "fileExists", "folderNotFound", "accessDenied", "folderUnavailable"],
+  "newErrorCodes": ["invalidName", "fileExists"],
+  "catalogPrefix": "newFile",
+  "sessionMethod": "createFile",
+  "portMethod": "create_file",
+  "files": {
+    "core": "engine/core/create.py",
+    "coreTests": "engine/tests/test_create_core.py",
+    "ui": "app/src/browse/NewFile.tsx",
+    "uiTests": "app/src/browse/NewFile.test.tsx"
+  },
+  "fixture": {
+    "folders": ["Photos"],
+    "files": {
+      "existing.txt": "keep me",
+      "Photos/inside.txt": "inside"
+    }
+  },
+  "probes": {
+    "request": { "folder": "{root}", "name": "{name}" },
+    "nameField": "name",
+    "success": {
+      "name": "new תקציב.txt",
+      "reply": { "name": "new תקציב.txt" },
+      "created": [{ "path": "new תקציב.txt", "kind": "file", "content": "" }],
+      "removed": [],
+      "listFolder": "{root}"
+    },
+    "existingNames": ["existing.txt", "EXISTING.TXT", "Photos"],
+    "missingFolder": { "folder": "{root}\\gone" },
+    "denied": { "path": "{root}", "rights": "(WD)", "code": "accessDenied" },
+    "cases": []
+  }
+}
