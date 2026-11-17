@@ -1,0 +1,15 @@
+
+{
+  "mcpServers": {
+    "folder-stats": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "mcp-server/dist/index.js"
+      ],
+      "env": {
+        "FOLDER_STATS_MAX_DEPTH": "${FOLDER_STATS_MAX_DEPTH:-5}"
+      }
+    }
+  }
+}
