@@ -73,6 +73,26 @@ describe("RenameFile", () => {
     expect(document.activeElement).toBe(row);
   });
 
+  it("changes nothing for an untouched name the disk holds with a leading space", () => {
+    const { onRename, onClose } = setup(undefined, " notes.txt");
+    fireEvent.submit(dialog());
+    expect(onRename).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledExactlyOnceWith(false);
+  });
+
+  it("stays open on Esc and Cancel while the rename runs: it can't be called back", () => {
+    const row = makeRow();
+    const onRename = vi.fn(() => new Promise<RenameFileResult>(() => {}));
+    const onClose = vi.fn();
+    render(<RenameFile folder={DOCS} name="notes.txt" row={row} onRename={onRename} onClose={onClose} />);
+    fireEvent.change(nameField(), { target: { value: "x.txt" } });
+    fireEvent.submit(dialog());
+    fireEvent.keyDown(nameField(), { key: "Escape" });
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: t("rename.cancel") }).disabled).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(dialog()).toBeTruthy();
+  });
+
   it("keeps Rename disabled while the name is empty or spaces", () => {
     const { onRename } = setup();
     fireEvent.change(nameField(), { target: { value: "   " } });
@@ -98,6 +118,7 @@ describe("RenameFile", () => {
     ["fileNotFound", "rename.fileNotFound"],
     ["invalidName", "rename.invalidName"],
     ["accessDenied", "rename.accessDenied"],
+    ["folderUnavailable", "rename.folderUnavailable"],
     ["somethingNew", "rename.failed"],
   ] as const)("words a %s refusal under the field and stays open to fix the name", async (code, key) => {
     const { onClose } = setup({ renamed: false, code });
@@ -173,6 +194,16 @@ describe("BrowseList Rename", () => {
     fireEvent.submit(dialog());
     expect(renameFile).toHaveBeenCalledExactlyOnceWith(DOCS, "Budget תקציב.pdf", "new.pdf");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("Rename opened on another file starts with that file's name, never the text typed for the first", () => {
+    const { renameFile } = setup();
+    fireEvent.keyDown(row("other.pdf"), { key: "F2" });
+    fireEvent.change(nameField(), { target: { value: "typed for other.pdf" } });
+    fireEvent.keyDown(row("Budget תקציב.pdf"), { key: "F2" });
+    expect(nameField().value).toBe("Budget תקציב.pdf");
+    fireEvent.submit(dialog());
+    expect(renameFile).not.toHaveBeenCalled();
   });
 
   it("never opens Rename for a folder, nor on a held F2 or a modified one", () => {

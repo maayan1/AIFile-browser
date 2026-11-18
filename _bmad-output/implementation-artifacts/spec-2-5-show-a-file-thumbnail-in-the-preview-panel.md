@@ -76,6 +76,25 @@ context:
 - Given `npm test`, `npm run typecheck`, `uv run pytest`, `cargo test` and the Pester suite, when run, then all pass.
 - Given `tauri dev`, when I arrow through a folder of PNG, TXT and PDF files, then each one's thumbnail appears within 2 s at ≈144px in the panel's top-right corner, and holding ↓ ends on the last file's thumbnail.
 
+### Review Findings
+
+Code review of the merge branch `feature/file-thumbnail-preview` (2026-11-18), round 2 (this story, commit d817cb4). Layers: blind-hunter, edge-case-hunter, verification-gap, acceptance-auditor. No acceptance criterion or frozen matrix row is violated.
+
+- [x] [Review][Defer] A failed preview can't be retried on the same file — Selection is keyed on `previewKey` (path, size, modified), so re-clicking the selected row or F5 with the file unchanged sends no new `preview`. After a timeout, a transient lock (winerror 32) or an engine restart, the panel says "This file can't be read" until the user selects another file and comes back. — deferred (author's decision): rare, and selecting another file and coming back works.
+- [x] [Review][Patch] No test covers a file of 4 GiB or more: `_entry` combines `nFileSizeHigh`/`nFileSizeLow`, and the panel now shows that size [engine/adapters/windows_fs.py:124]
+- [x] [Review][Defer] The 2.5 s UI preview timeout leaves 0.5 s over the engine's 2 s read deadline for queue wait, base64, the ~13 MB line and the Tauri relay; a valid large image could show "can't be read". The two values are tied by a comment only, and locate/stat/open run outside the deadline [app/src/preview/session.ts:46] — deferred: unverified, medium if true; settle it with the 10 MB timing run already deferred (deferred-work.md), timed from the UI's request.
+- [x] [Review][Defer] Up to 8 previews stuck on an unreachable share fill `MAX_ABANDONED`; after that every preview, local ones too, queues behind them and times out [engine/adapters/stdio_transport.py:271] — deferred: pre-existing channel mechanism, not caused by this story.
+- [x] [Review][Defer] Docs drift: `epic-2-context.md` asks for an EN/HE catalog and test (the story decided English only), says New file is the only write and the row menu is Open/Show in folder only (Rename now ships), describes the Epic 4 panel (header icon, 14px excerpt), and claims Correct Display covers the Preview Panel with no test behind it; epics.md and the spec's notes miss `RECALL_ON_OPEN` and the UI timeout; the FR map still credits Epic 4 with FR-22's text preview [_bmad-output/implementation-artifacts/epic-2-context.md] — deferred: fixes edit agent-context and planning docs.
+
+**Rejected:**
+- `false` — Logging the thumbnail kind breaks "log only path and outcome code": the kind (`image`/`text`/`page`) carries none of the user's words or content.
+- `false` — `.log` and `.markdown` get text thumbnails beyond TXT/MD: the Code Map names the `text`/`markdown` type codes, which include them.
+- `low` — The text thumbnail isn't drawn as a bordered "mini page": a judgment on the look, and the square frame reads as one.
+- `low` — `previewReady.schema.json` doesn't enforce "`outcomeCode` only with a page": the engine never sends that shape, and the fix adds schema branches.
+- `low` — `select()` after `stop()` sends one request and arms a timer: `update` is already a no-op once stopped; one wasted request at unmount.
+- `low` — Spec status `done` vs sprint `review`: settled by this review's status update.
+- Spec edit — The Verification section leaves out the Pester command AC 1 names: the fix edits the spec under review.
+
 ## Implementation Notes
 
 - `readOutcomeCodes` lists only the three codes a preview sends; the core `ReadOutcome` enum holds all six spine values (`core/outcomes.py`, `PREVIEW_OUTCOMES`).

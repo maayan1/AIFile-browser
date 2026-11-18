@@ -5,7 +5,6 @@ import { z } from "zod";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 // Root folder that the MCP is allowed to inspect
 
 const PROJECT_ROOT = path.resolve(
@@ -21,11 +20,18 @@ const IGNORED_FOLDERS = new Set([
   "dist",
   "build",
   ".next",
+  // The repo's build and environment folders (see .gitignore): thousands of entries, none of them ours.
+  "target",
+  ".venv",
+  "__pycache__",
+  ".pytest_cache",
 ]);
 
-const MAX_DEPTH = Number(
-  process.env.FOLDER_STATS_MAX_DEPTH ?? "5"
-);
+// A whole number of levels (0 or more); anything else falls back to 5, never to "no limit" (NaN).
+const DEFAULT_MAX_DEPTH = 5;
+const requestedDepth = Number.parseInt(process.env.FOLDER_STATS_MAX_DEPTH ?? "", 10);
+const MAX_DEPTH =
+  Number.isInteger(requestedDepth) && requestedDepth >= 0 ? requestedDepth : DEFAULT_MAX_DEPTH;
 const MAX_ENTRIES = 5000;
 
 // Create MCP server
@@ -198,6 +204,8 @@ server.registerTool(
       });
 
       const items = [];
+      // Only true when a listable item was left out, not when skipped links or folders made up the count.
+      let truncated = false;
 
       for (const entry of entries) {
         // Skip symbolic links and ignored folders
@@ -208,6 +216,11 @@ server.registerTool(
           IGNORED_FOLDERS.has(entry.name)
         ) {
           continue;
+        }
+
+        if (items.length >= 200) {
+          truncated = true;
+          break;
         }
 
         const fullPath = path.join(safePath, entry.name);
@@ -227,8 +240,6 @@ server.registerTool(
             sizeBytes: stats.size,
           });
         }
-
-        if (items.length >= 200) break;
       }
 
       // Return the result to the MCP client
@@ -241,7 +252,7 @@ server.registerTool(
                 folder: folder_path,
                 items,
                 returnedItems: items.length,
-                truncated: entries.length > 200,
+                truncated,
               },
               null,
               2

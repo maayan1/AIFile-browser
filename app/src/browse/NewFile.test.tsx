@@ -82,6 +82,19 @@ describe("NewFile", () => {
     expect(onCreate).not.toHaveBeenCalled();
   });
 
+  it("stays open on Esc, Cancel and the button while a create runs: the file can't be called back", () => {
+    const onCreate = vi.fn(() => new Promise<CreateFileResult>(() => {}));
+    render(<NewFile folder={DOCS} onCreate={onCreate} />);
+    fireEvent.click(newFileButton());
+    fireEvent.change(nameField(), { target: { value: "notes.txt" } });
+    fireEvent.submit(screen.getByRole("dialog"));
+    fireEvent.keyDown(nameField(), { key: "Escape" });
+    fireEvent.click(newFileButton());
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: t("newFile.cancel") }).disabled).toBe(true);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(onCreate).toHaveBeenCalledTimes(1);
+  });
+
   it("closes when another folder is listed, and stays open while one loads", () => {
     const { rerender } = setup();
     rerender(<NewFile folder={undefined} onCreate={vi.fn()} />);

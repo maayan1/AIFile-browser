@@ -52,7 +52,8 @@ class CreateRefused(Exception):
 
 def name_is_valid(name: str) -> bool:
     """Whether `name` is one Windows file name the app may create (see createFile.schema.json)."""
-    if not name or name in (".", "..") or len(name) > MAX_NAME_LENGTH:
+    # Counted as NTFS counts: UTF-16 code units, two for an emoji or another astral character.
+    if not name or name in (".", "..") or len(name.encode("utf-16-le")) // 2 > MAX_NAME_LENGTH:
         return False
     if any(ch in INVALID_NAME_CHARS for ch in name):
         return False

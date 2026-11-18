@@ -537,6 +537,18 @@ describe("BrowseSession.createFile", () => {
     expect(shell.sent.some((m) => m.type === "showInFolder")).toBe(false);
   });
 
+  it("doesn't cancel the user's way out when the reply beats the next folder's listing", async () => {
+    const { shell, session, seen } = await inDocuments();
+    const result = session.createFile(DOCS, "notes.txt");
+    session.open(WORK);
+    shell.line(created("u3", "notes.txt"));
+    expect((await result).created).toBe(true);
+    expect(shell.sent.some((m) => m.type === "showInFolder")).toBe(false);
+    shell.line(listing("u4", WORK));
+    await flush();
+    expect(seen.at(-1)!.location).toBe(WORK);
+  });
+
   it("reports an engine restart as failed", async () => {
     const { shell, session } = await inDocuments();
     const result = session.createFile(DOCS, "notes.txt");
@@ -566,7 +578,7 @@ describe("BrowseSession.renameFile", () => {
     expect(last.canBack).toBe(false); // the same folder: no history entry
   });
 
-  it.each(["fileExists", "invalidName", "fileNotFound", "fileInUse", "accessDenied"])(
+  it.each(["fileExists", "invalidName", "fileNotFound", "fileInUse", "accessDenied", "folderUnavailable"])(
     "returns the engine's %s code and lists nothing",
     async (code) => {
       const { shell, session } = await inDocuments();
@@ -585,6 +597,18 @@ describe("BrowseSession.renameFile", () => {
     shell.line(renamed("u3", "notes.txt", "x.txt"));
     expect((await result).renamed).toBe(true);
     expect(shell.sent.some((m) => m.type === "showInFolder")).toBe(false);
+  });
+
+  it("doesn't cancel the user's way out when the reply beats the next folder's listing", async () => {
+    const { shell, session, seen } = await inDocuments();
+    const result = session.renameFile(DOCS, "notes.txt", "x.txt");
+    session.open(WORK);
+    shell.line(renamed("u3", "notes.txt", "x.txt"));
+    expect((await result).renamed).toBe(true);
+    expect(shell.sent.some((m) => m.type === "showInFolder")).toBe(false);
+    shell.line(listing("u4", WORK));
+    await flush();
+    expect(seen.at(-1)!.location).toBe(WORK);
   });
 
   it("reports an engine restart as failed", async () => {

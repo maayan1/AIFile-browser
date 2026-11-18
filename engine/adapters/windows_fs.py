@@ -10,6 +10,7 @@ it checks the online-only attributes again first and never opens such a file.
 from __future__ import annotations
 
 import ctypes
+import errno
 import logging
 import ntpath
 import os
@@ -155,6 +156,16 @@ def _split(path: str) -> tuple[str, list[str]]:
     if any(_invalid_name(name) for name in names):
         raise FileNotFoundError(path)
     return drive + "\\", names
+
+
+# The OS refusing a name the core passed: one it won't take (123), or a full path too long (206).
+ERROR_INVALID_NAME = 123
+ERROR_FILENAME_EXCED_RANGE = 206
+
+
+def _name_refused(path: str, winerror: int) -> OSError:
+    """The OSError a Win32 call would raise for `path`, with `winerror` for the core to map."""
+    return OSError(0, ctypes.FormatError(winerror), path, winerror)
 
 
 class WindowsFileSystem:
@@ -312,6 +323,16 @@ class WindowsFileSystem:
             if os.path.lexists(path):
                 raise FileExistsError(path) from None
             raise
+        except FileNotFoundError:
+            # os.open's errors carry only errno. With the folder there, "not found" is the OS
+            # refusing the full path: too long without long-path support.
+            if os.path.isdir(ntpath.dirname(path)):
+                raise _name_refused(path, ERROR_FILENAME_EXCED_RANGE) from None
+            raise
+        except OSError as exc:
+            if exc.winerror is None and exc.errno == errno.EINVAL:
+                raise _name_refused(path, ERROR_INVALID_NAME) from None
+            raise
         os.close(fd)
 
     def rename_file(self, path: str, new_path: str) -> None:
@@ -329,4 +350,10 @@ class WindowsFileSystem:
             # A file renamed onto an existing folder's name fails as access denied.
             if not same_file and os.path.lexists(new_path):
                 raise FileExistsError(new_path) from None
+            raise
+        except FileNotFoundError:
+            # The file is still there, in its folder: "not found" is the OS refusing the new full
+            # path, too long without long-path support (MoveFileExW says winerror 3).
+            if os.path.isfile(path):
+                raise _name_refused(new_path, ERROR_FILENAME_EXCED_RANGE) from None
             raise

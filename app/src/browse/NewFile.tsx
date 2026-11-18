@@ -74,7 +74,8 @@ export function NewFile({
     // Handled here, so the window's Esc doesn't also leave a search view.
     event.preventDefault();
     event.stopPropagation();
-    close(true);
+    // A file on its way can't be called back: the form waits for its result, not hides it.
+    if (!busy) close(true);
   };
 
   const enabled = folder !== undefined && onCreate !== undefined;
@@ -89,7 +90,7 @@ export function NewFile({
         aria-haspopup="dialog"
         aria-controls={open ? formId : undefined}
         title={t("newFile.button")}
-        onClick={() => (open ? close(true) : folder !== undefined && setTarget(folder))}
+        onClick={() => (open ? !busy && close(true) : folder !== undefined && setTarget(folder))}
       >
         <FilePlus aria-hidden="true" className="size-4" />
         {t("newFile.button")}
@@ -127,7 +128,7 @@ export function NewFile({
             </p>
           )}
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => close(true)}>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => close(true)}>
               {t("newFile.cancel")}
             </Button>
             <Button type="submit" size="sm" disabled={!name.trim() || busy}>

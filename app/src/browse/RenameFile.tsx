@@ -87,7 +87,8 @@ export function RenameFile({
     event.preventDefault();
     const trimmed = value.trim();
     if (!trimmed || busy) return;
-    if (trimmed === name) {
+    // Untouched (even a name the disk holds with a leading space), or only spaces added: nothing to do.
+    if (value === name || trimmed === name) {
       close(false);
       return;
     }
@@ -109,7 +110,8 @@ export function RenameFile({
     if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
     event.preventDefault();
     event.stopPropagation();
-    close(false);
+    // A rename on its way can't be called back: the form waits for its result, not hides it.
+    if (!busy) close(false);
   };
 
   return (
@@ -146,7 +148,7 @@ export function RenameFile({
         </p>
       )}
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={() => close(false)}>
+        <Button variant="ghost" size="sm" disabled={busy} onClick={() => close(false)}>
           {t("rename.cancel")}
         </Button>
         <Button type="submit" size="sm" disabled={!value.trim() || busy}>

@@ -197,7 +197,7 @@ export class BrowseSession implements BrowseActions {
       (reply): CreateFileResult => {
         if (reply.type === "fileCreated") {
           // The refresh: the folder again, with the new file selected and scrolled into view.
-          if (this.active && this.location === folder) this.go({ type: "showInFolder", path: reply.path }, "push");
+          this.refreshTo(folder, reply.path);
           return { created: true, path: reply.path };
         }
         return { created: false, code: reply.type === "error" ? reply.code : "failed" };
@@ -215,7 +215,7 @@ export class BrowseSession implements BrowseActions {
       (reply): RenameFileResult => {
         if (reply.type === "fileRenamed") {
           // The refresh: the folder again, with the renamed file selected and scrolled into view.
-          if (this.active && this.location === folder) this.go({ type: "showInFolder", path: reply.path }, "push");
+          this.refreshTo(folder, reply.path);
           return { renamed: true, path: reply.path };
         }
         return { renamed: false, code: reply.type === "error" ? reply.code : "failed" };
@@ -232,6 +232,15 @@ export class BrowseSession implements BrowseActions {
     this.active = false;
     this.unsubscribe();
     this.listeners.clear();
+  }
+
+  /**
+   * After a write in `folder`: list it again with `path` selected, unless the user has left it or
+   * is on the way somewhere else (a listing still pending would be replaced, latest wins, and the
+   * user pulled back).
+   */
+  private refreshTo(folder: string, path: string): void {
+    if (this.active && this.location === folder && this.pending === null) this.go({ type: "showInFolder", path }, "push");
   }
 
   /**

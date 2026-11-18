@@ -512,6 +512,56 @@ def test_rename_file_of_a_file_another_program_has_open_fails_as_in_use(tmp_path
     assert [p.name for p in tmp_path.iterdir()] == ["notes.txt"]
 
 
+def long_paths_enabled() -> bool:
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\FileSystem") as key:
+            return winreg.QueryValueEx(key, "LongPathsEnabled")[0] == 1
+    except OSError:
+        return False
+
+
+def deep_folder(tmp_path: Path) -> Path:
+    """A folder whose full path is about 230 characters: under MAX_PATH, with no room for a long name."""
+    folder = tmp_path / ("d" * (230 - len(str(tmp_path)) - 1))
+    folder.mkdir()
+    return folder
+
+
+needs_max_path = pytest.mark.skipif(long_paths_enabled(), reason="long paths are enabled: the OS takes the name")
+
+
+@needs_max_path
+def test_create_file_whose_full_path_is_too_long_is_a_name_the_os_refuses(tmp_path: Path) -> None:
+    folder = deep_folder(tmp_path)
+    with pytest.raises(OSError) as info:
+        WindowsFileSystem().create_file(str(folder / ("y" * 100 + ".txt")))
+    assert info.value.winerror == 206  # invalidName in the core, not "the folder doesn't exist"
+    assert list(folder.iterdir()) == []
+
+
+@needs_max_path
+def test_rename_file_whose_new_full_path_is_too_long_is_a_name_the_os_refuses(tmp_path: Path) -> None:
+    folder = deep_folder(tmp_path)
+    (folder / "a.txt").write_bytes(b"keep me")
+    with pytest.raises(OSError) as info:
+        WindowsFileSystem().rename_file(str(folder / "a.txt"), str(folder / ("x" * 100 + ".txt")))
+    assert info.value.winerror == 206  # invalidName in the core, not "the file isn't here anymore"
+    assert [p.name for p in folder.iterdir()] == ["a.txt"]
+
+
+def test_rename_file_casing_only_of_a_file_in_use_is_in_use_not_file_exists(tmp_path: Path) -> None:
+    source = tmp_path / "notes.txt"
+    source.write_bytes(b"keep me")
+    # The new name "exists" (it is this same file, in other casing): still in use, not taken.
+    with open(source, "rb"), pytest.raises(PermissionError) as info:
+        WindowsFileSystem().rename_file(str(source), str(tmp_path / "Notes.TXT"))
+    assert not isinstance(info.value, FileExistsError)
+    assert getattr(info.value, "winerror", None) == 32
+    assert [p.name for p in tmp_path.iterdir()] == ["notes.txt"]
+
+
 def test_rename_file_that_may_not_be_deleted_raises_permission_error(tmp_path: Path) -> None:
     source = tmp_path / "notes.txt"
     source.write_bytes(b"keep me")
@@ -538,6 +588,15 @@ def test_stat_reports_the_entry_in_on_disk_casing_as_enumeration_does(folder: Pa
     assert entry.attributes & FILE_ATTRIBUTE_ARCHIVE
     hebrew = fs.stat(str(folder / HEBREW_DOC))
     assert (hebrew.name, hebrew.size) == (HEBREW_DOC, 3)
+
+
+def test_an_entry_of_4_gib_or_more_keeps_its_high_size_word() -> None:
+    data = windows_fs.wintypes.WIN32_FIND_DATAW()
+    data.cFileName = "video.mp4"
+    data.nFileSizeHigh, data.nFileSizeLow = 1, 5
+    entry = windows_fs._entry(data)
+    assert entry.size == 2**32 + 5
+    assert entry.mtime_ns is None  # no write time recorded
 
 
 def test_stat_of_a_folder_has_no_size(folder: Path) -> None:

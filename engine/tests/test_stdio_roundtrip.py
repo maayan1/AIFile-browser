@@ -744,6 +744,7 @@ def test_create_file_creates_an_empty_file_then_refuses_to_overwrite_it(engine: 
     engine.send({"id": "c3", "type": "listFolder", "path": str(docs)})
     assert "notes תקציב.txt" in {e["name"] for e in engine.read()["entries"]}
     assert no_schema_violations(tmp_path)
+    assert "notes תקציב" not in (tmp_path / "engine.log").read_text(encoding="utf-8")  # the name is never logged
 
 
 @pytest.mark.parametrize("name", ["", "..", r"..\escaped.txt", "../escaped.txt", r"C:\escaped.txt", "a:b", "CON"])
@@ -797,6 +798,9 @@ def test_rename_file_renames_in_place_then_refuses_to_overwrite(engine: Engine, 
     names = {e["name"] for e in engine.read()["entries"]}
     assert "תקציב 2026.pdf" in names and "Budget תקציב.pdf" not in names
     assert no_schema_violations(tmp_path)
+    log_text = (tmp_path / "engine.log").read_text(encoding="utf-8")
+    assert "renameFile" in log_text  # the requests were logged, by code only:
+    assert "תקציב" not in log_text and "Budget" not in log_text  # neither name ever is
 
 
 @pytest.mark.parametrize("name", ["", "..", r"..\escaped.pdf", "../escaped.pdf", r"Photos\moved.pdf", r"C:\escaped.pdf", "a:b", "CON"])

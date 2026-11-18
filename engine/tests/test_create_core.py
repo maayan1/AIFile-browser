@@ -67,7 +67,7 @@ def test_creates_at_a_drive_root_without_a_doubled_separator() -> None:
     assert create_file(fs, "C:\\", "a.txt", CancelToken())["path"] == r"C:\a.txt"
 
 
-@pytest.mark.parametrize("name", ["סיכום ישיבה.docx", "no extension", ".gitignore", "a..b", "x" * MAX_NAME_LENGTH, " lead.txt"])
+@pytest.mark.parametrize("name", ["סיכום ישיבה.docx", "no extension", ".gitignore", "a..b", "x" * MAX_NAME_LENGTH, "😀" * 127 + "x", " lead.txt"])
 def test_accepts_ordinary_names(name: str) -> None:
     assert name_is_valid(name)
     fs = make()
@@ -96,6 +96,7 @@ def test_a_second_create_of_the_same_name_is_file_exists() -> None:
         "trailing.", "trailing ", "...",
         "CON", "con", "con.txt", "NUL.tar.gz", "Aux", "prn .txt", "COM1", "lpt9.log", "COM\u00b9",
         "x" * (MAX_NAME_LENGTH + 1),
+        "😀" * 128,  # 128 emoji: 256 UTF-16 code units, one over NTFS's limit
     ],
 )
 def test_invalid_names_and_path_traversal_are_rejected_before_any_write(name: str) -> None:

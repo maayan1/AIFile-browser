@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 11-02-2026 14:54
-last_updated: 2026-11-17
+last_updated: 2026-11-18
 project: AIFile browser
 project_key: NOKEY
 tracking_system: file-system
@@ -52,7 +52,7 @@ development_status:
   2-2-see-name-results-and-no-matching-files-found: done
   2-3-cancel-a-search-and-keep-going-past-folders-i-can-t-open: done
   2-4-keep-name-search-fast-in-very-large-folders: backlog
-  2-5-show-a-file-thumbnail-in-the-preview-panel: review
+  2-5-show-a-file-thumbnail-in-the-preview-panel: done
   epic-2-retrospective: optional
 
   epic-3: backlog

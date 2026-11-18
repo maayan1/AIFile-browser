@@ -143,11 +143,12 @@ class FileSystemPort(Protocol):
         """Create the new, empty file `path` (absolute, in an existing folder), atomically: when
         anything named `path` already exists, in any casing, nothing changes. Never creates a
         folder, and sets no permissions of its own: the file gets what its folder gives new files.
-        The port's only write (createFile; see core/create.py).
+        One of the port's two writes, with rename_file (createFile; see core/create.py).
 
         Raises FileExistsError when an item of that name exists, FileNotFoundError for a relative
-        path or a missing folder, PermissionError when the folder can't be written to, or another
-        OSError (drive not ready, share unreachable, a name the OS refuses).
+        path or a missing folder, PermissionError when the folder can't be written to, an OSError
+        with winerror 123 or 206 when the OS refuses the name (too long once joined to the folder),
+        or another OSError (drive not ready, share unreachable).
         """
         ...
 
@@ -160,7 +161,8 @@ class FileSystemPort(Protocol):
 
         Raises FileExistsError when another item has that name, IsADirectoryError when `path` is a
         folder, FileNotFoundError for a relative path or a missing file, PermissionError when the
-        file or folder can't be changed, or another OSError (the file is in use: winerror 32;
-        drive not ready, share unreachable, a name the OS refuses).
+        file or folder can't be changed, an OSError with winerror 123 or 206 when the OS refuses
+        the new name (too long once joined to the folder), or another OSError (the file is in use:
+        winerror 32; drive not ready, share unreachable).
         """
         ...

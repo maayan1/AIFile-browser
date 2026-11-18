@@ -240,6 +240,8 @@ export function BrowseList({
       )}
       {renameOpen && actions && (
         <RenameFile
+          // One form per file: Rename opened on another file starts fresh, never with the last one's text.
+          key={`${renaming.listing.path}\u0000${renaming.entry.name}`}
           folder={renaming.listing.path}
           name={renaming.entry.name}
           row={renaming.row}
