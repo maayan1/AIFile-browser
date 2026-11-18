@@ -51,7 +51,7 @@ development_status:
   2-1-search-names-in-this-folder-and-its-subfolders: done
   2-2-see-name-results-and-no-matching-files-found: done
   2-3-cancel-a-search-and-keep-going-past-folders-i-can-t-open: done
-  2-4-keep-name-search-fast-in-very-large-folders: backlog
+  2-4-keep-name-search-fast-in-very-large-folders: review  # OPEN: Baseline PC run, in-app on-screen check (a, e) and a cold-cache first search; engine part passed on the dev PC (docs/name-search-speed.md).
   2-5-show-a-file-thumbnail-in-the-preview-panel: done
   epic-2-retrospective: optional
 

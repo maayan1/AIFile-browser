@@ -86,6 +86,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-1-search-names-in-this-folder-and-its-subfolders.md`
   summary: Name results accumulate quadratically in `SearchSession` (copy plus notify per 200-match batch), and `name_search` flushes only between folders, so one huge or slow folder holds its matches. Handle both in Story 2.4's measurement and tuning.
   evidence: `app/src/search/session.ts` `[...this.current.matches, ...message.matches]` per batch; `engine/core/search/filename.py` checks FLUSH_AFTER after each walked folder. A drive-root search with ~100k matches makes ~500 batches, each copying the growing array.
+  still open: Story 2.4 (2026-11-16) measured the engine at p90 1.04 s on the 50,000-file tree (`docs/name-search-speed.md`, development PC above Baseline), so the engine-side flush wasn't needed for the engine number and wasn't changed. The UI-side `SearchSession` matches copy can't be seen by the engine script: it stays unmeasured until the in-app `[search] on screen` check runs, especially for the single-letter searches (20,000+ matches, every row rendered). Neither was changed.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-1-search-names-in-this-folder-and-its-subfolders.md`
   summary: Re-target the Story 1.4 item "split an oversized `folderListing` into several replies on the same id". Multi-message replies now exist (`Channel` `emit`, `ProtocolClient.stream`), so the split can reuse them.

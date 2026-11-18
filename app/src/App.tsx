@@ -4,7 +4,8 @@ import { AppShell } from "./components/shell/AppShell";
 import { EngineSession } from "./engine/session";
 import { PreviewSession, type PreviewActions, type PreviewSnapshot } from "./preview/session";
 import { ProtocolClient, tauriTransport } from "./protocol/client";
-import { SearchSession, type SearchActions, type SearchSnapshot } from "./search/session";
+import { SearchSession, type SearchActions, type SearchSnapshot, type SearchTrace } from "./search/session";
+import { onScreenTimer } from "./search/timer";
 
 // Dev-only check from Story 1.1: a Hebrew ping round-trip after every ready, logged to the console.
 const ECHO_TEXT = "סיכום ישיבה";
@@ -22,11 +23,17 @@ export default function App() {
     const client = new ProtocolClient(tauriTransport());
     const session = new EngineSession(client);
     const browsing = new BrowseSession(client);
-    // Dev only: each search reply's id and type in the console (never the search text).
-    const searching = new SearchSession(
-      client,
-      import.meta.env.DEV ? (id, type, detail) => console.info("[search]", id, type, detail ?? "") : undefined,
-    );
+    // Dev only: each search sent and each reply's id and type in the console, then the ms from Enter
+    // to the results on screen (never the search text).
+    let trace: SearchTrace | undefined;
+    if (import.meta.env.DEV) {
+      const onScreen = onScreenTimer((id, ms) => console.info("[search] on screen", id, `${Math.round(ms)} ms`));
+      trace = (id, type, detail) => {
+        console.info("[search]", id, type, detail ?? "");
+        onScreen(id, type, detail);
+      };
+    }
+    const searching = new SearchSession(client, trace);
     const previewing = new PreviewSession(client);
     let active = true;
 
