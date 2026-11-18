@@ -228,6 +228,15 @@ class TestFileSystem(WindowsFileSystem):
             time.sleep(0.001)
             yield FsEntry(f"f{i}.txt", False, 1, None, 0x20, 0)
 
+    def read_head(self, path, limit, check):
+        if "SLOWREAD" not in path:
+            return super().read_head(path, limit, check)
+        # A file on a share that crawls: one tiny chunk every 10 ms, checking between them.
+        for _ in range(6000):
+            check()
+            time.sleep(0.01)
+        return b""
+
 main.WindowsFileSystem = TestFileSystem
 sys.exit(main.main())
 """
@@ -713,3 +722,229 @@ def test_a_denied_subfolder_is_skipped_with_the_permission_notice(engine: Engine
         assert (done["outcomeCode"], done["notices"]) == ("noMatches", ["permissionSkipped"])
     finally:
         allow_listing(private)
+
+
+# ----- createFile ------------------------------------------------------------------------------
+
+
+def test_create_file_creates_an_empty_file_then_refuses_to_overwrite_it(engine: Engine, tmp_path: Path) -> None:
+    docs = make_documents(tmp_path)
+    engine.send({"id": "c1", "type": "createFile", "folder": str(docs).upper(), "name": "notes תקציב.txt"})
+    reply = engine.read()
+    assert_valid(reply)
+    assert reply == {"id": "c1", "type": "fileCreated", "path": str(docs / "notes תקציב.txt"), "name": "notes תקציב.txt"}
+    assert (docs / "notes תקציב.txt").read_bytes() == b""
+
+    (docs / "notes תקציב.txt").write_bytes(b"typed later")
+    engine.send({"id": "c2", "type": "createFile", "folder": str(docs), "name": "NOTES תקציב.TXT"})
+    assert engine.read() == {"id": "c2", "type": "error", "code": "fileExists", "data": {}}
+    assert (docs / "notes תקציב.txt").read_bytes() == b"typed later"
+
+    # The new file is in the next listing, so the UI's refresh shows it.
+    engine.send({"id": "c3", "type": "listFolder", "path": str(docs)})
+    assert "notes תקציב.txt" in {e["name"] for e in engine.read()["entries"]}
+    assert no_schema_violations(tmp_path)
+    assert "notes תקציב" not in (tmp_path / "engine.log").read_text(encoding="utf-8")  # the name is never logged
+
+
+@pytest.mark.parametrize("name", ["", "..", r"..\escaped.txt", "../escaped.txt", r"C:\escaped.txt", "a:b", "CON"])
+def test_create_file_rejects_invalid_names_and_path_traversal(engine: Engine, tmp_path: Path, name: str) -> None:
+    docs = make_documents(tmp_path)
+    before = sorted(p.name for p in tmp_path.rglob("*"))
+    engine.send({"id": "c4", "type": "createFile", "folder": str(docs), "name": name})
+    assert engine.read() == {"id": "c4", "type": "error", "code": "invalidName", "data": {}}
+    assert sorted(p.name for p in tmp_path.rglob("*")) == before
+
+
+def test_create_file_in_a_missing_folder_is_folder_not_found(engine: Engine, tmp_path: Path) -> None:
+    engine.send({"id": "c5", "type": "createFile", "folder": str(tmp_path / "gone"), "name": "notes.txt"})
+    assert engine.read() == {"id": "c5", "type": "error", "code": "folderNotFound", "data": {}}
+    assert not (tmp_path / "gone").exists()
+
+
+def test_create_file_runs_beside_a_listing_without_cancelling_it(test_fs_engine: Engine) -> None:
+    docs = test_fs_engine.documents  # type: ignore[attr-defined]
+    test_fs_engine.send({"id": "c6", "type": "listFolder", "path": "SLOW"})  # still running below
+    test_fs_engine.send({"id": "c7", "type": "createFile", "folder": str(docs), "name": "new.txt"})
+    assert test_fs_engine.read()["id"] == "c7"  # answered while the listing runs
+    assert (docs / "new.txt").is_file()
+    test_fs_engine.send({"id": "c6", "type": "cancel"})
+    assert test_fs_engine.read() == {"id": "c6", "type": "cancelled"}
+
+
+# ----- renameFile ------------------------------------------------------------------------------
+
+
+def test_rename_file_renames_in_place_then_refuses_to_overwrite(engine: Engine, tmp_path: Path) -> None:
+    docs = make_documents(tmp_path)
+    old = docs / "Budget תקציב.pdf"
+    old.write_bytes(b"keep me")
+    engine.send({"id": "r1", "type": "renameFile", "path": str(old).upper(), "newName": "תקציב 2026.pdf"})
+    reply = engine.read()
+    assert_valid(reply)
+    assert reply == {"id": "r1", "type": "fileRenamed", "oldPath": str(old), "path": str(docs / "תקציב 2026.pdf"), "name": "תקציב 2026.pdf"}
+    assert not old.exists()
+    assert (docs / "תקציב 2026.pdf").read_bytes() == b"keep me"
+
+    # Onto another file's name (any casing) or a folder's: refused, both left as they were.
+    for taken in ["סיכום ישיבה 3.DOCX", "photos"]:
+        engine.send({"id": "r2", "type": "renameFile", "path": str(docs / "תקציב 2026.pdf"), "newName": taken})
+        assert engine.read() == {"id": "r2", "type": "error", "code": "fileExists", "data": {}}
+    assert (docs / "סיכום ישיבה 3.docx").read_bytes() == b"x" * 38912
+    assert (docs / "Photos").is_dir()
+
+    # The renamed file is in the next listing, so the UI's refresh shows it.
+    engine.send({"id": "r3", "type": "listFolder", "path": str(docs)})
+    names = {e["name"] for e in engine.read()["entries"]}
+    assert "תקציב 2026.pdf" in names and "Budget תקציב.pdf" not in names
+    assert no_schema_violations(tmp_path)
+    log_text = (tmp_path / "engine.log").read_text(encoding="utf-8")
+    assert "renameFile" in log_text  # the requests were logged, by code only:
+    assert "תקציב" not in log_text and "Budget" not in log_text  # neither name ever is
+
+
+@pytest.mark.parametrize("name", ["", "..", r"..\escaped.pdf", "../escaped.pdf", r"Photos\moved.pdf", r"C:\escaped.pdf", "a:b", "CON"])
+def test_rename_file_rejects_invalid_names_and_never_moves_the_file(engine: Engine, tmp_path: Path, name: str) -> None:
+    docs = make_documents(tmp_path)
+    before = sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*"))
+    engine.send({"id": "r4", "type": "renameFile", "path": str(docs / "Budget תקציב.pdf"), "newName": name})
+    assert engine.read() == {"id": "r4", "type": "error", "code": "invalidName", "data": {}}
+    assert sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*")) == before
+
+
+@pytest.mark.parametrize("target", ["Photos", "gone.pdf", r"gone\Budget תקציב.pdf"])
+def test_rename_file_of_a_folder_or_a_missing_file_is_file_not_found(engine: Engine, tmp_path: Path, target: str) -> None:
+    docs = make_documents(tmp_path)
+    engine.send({"id": "r5", "type": "renameFile", "path": str(docs / target), "newName": "renamed"})
+    assert engine.read() == {"id": "r5", "type": "error", "code": "fileNotFound", "data": {}}
+    assert (docs / "Photos").is_dir() and not (docs / "renamed").exists()
+
+
+def test_rename_file_of_a_file_in_use_is_file_in_use(engine: Engine, tmp_path: Path) -> None:
+    docs = make_documents(tmp_path)
+    with open(docs / "Budget תקציב.pdf", "rb"):
+        engine.send({"id": "r6", "type": "renameFile", "path": str(docs / "Budget תקציב.pdf"), "newName": "x.pdf"})
+        assert engine.read() == {"id": "r6", "type": "error", "code": "fileInUse", "data": {}}
+    assert (docs / "Budget תקציב.pdf").exists()
+
+
+def test_rename_file_runs_beside_a_listing_without_cancelling_it(test_fs_engine: Engine) -> None:
+    docs = test_fs_engine.documents  # type: ignore[attr-defined]
+    (docs / "old.txt").write_bytes(b"")
+    test_fs_engine.send({"id": "r7", "type": "listFolder", "path": "SLOW"})  # still running below
+    test_fs_engine.send({"id": "r8", "type": "renameFile", "path": str(docs / "old.txt"), "newName": "new.txt"})
+    assert test_fs_engine.read()["id"] == "r8"  # answered while the listing runs
+    assert (docs / "new.txt").is_file()
+    test_fs_engine.send({"id": "r7", "type": "cancel"})
+    assert test_fs_engine.read() == {"id": "r7", "type": "cancelled"}
+
+
+# ----- preview (spec 2.5 I/O matrix) -------------------------------------------------------------
+
+def make_png(width: int = 4, height: int = 3) -> bytes:
+    """A real PNG: 8-bit RGB, every pixel blue, with valid chunk CRCs."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    rows = b"".join(b"\x00" + b"\x00\x00\xff" * width for _ in range(height))
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+
+
+PNG = make_png()
+
+
+def test_preview_sends_a_real_png_and_the_first_lines_of_a_txt(engine: Engine, tmp_path: Path) -> None:
+    import base64
+
+    docs = make_documents(tmp_path)
+    (docs / "photo.png").write_bytes(PNG)
+    (docs / "סיכום ישיבה.txt").write_bytes("﻿שורה ראשונה\nsecond line\n".encode("utf-8") + b"z" * 5000)
+
+    engine.send({"id": "p1", "type": "preview", "path": str(docs / "PHOTO.PNG")})
+    reply = engine.read()
+    assert_valid(reply)
+    assert reply["id"] == "p1" and reply["type"] == "previewReady"
+    assert reply["details"]["name"] == "photo.png" and reply["details"]["path"] == str(docs / "photo.png")
+    assert (reply["details"]["typeCode"], reply["details"]["size"]) == ("image", len(PNG))
+    assert reply["thumbnail"]["kind"] == "image" and reply["thumbnail"]["mime"] == "image/png"
+    assert base64.b64decode(reply["thumbnail"]["data"]) == PNG
+    assert "outcomeCode" not in reply
+
+    engine.send({"id": "p2", "type": "preview", "path": str(docs / "סיכום ישיבה.txt")})
+    raw = engine.read_raw()
+    assert "שורה ראשונה".encode("utf-8") in raw
+    reply = json.loads(raw.decode("utf-8"))
+    assert_valid(reply)
+    text = reply["thumbnail"]["text"]
+    assert text.startswith("שורה ראשונה\nsecond line\n")  # the BOM dropped
+    assert len(text.encode("utf-8")) == 2048 - 3  # the first 2,048 bytes, less the BOM
+    # Reading changed nothing, and nothing read is in the log: only the path and the outcome.
+    assert (docs / "photo.png").read_bytes() == PNG
+    assert engine.close() == 0
+    log = (tmp_path / "engine.log").read_text(encoding="utf-8")
+    assert "שורה ראשונה" not in log and "second line" not in log
+    assert no_schema_violations(tmp_path)
+
+
+def test_preview_of_other_types_and_unreadable_files_is_a_page(engine: Engine, tmp_path: Path) -> None:
+    docs = make_documents(tmp_path)
+    engine.send({"id": "p3", "type": "preview", "path": str(docs / "Budget תקציב.pdf")})
+    reply = engine.read()
+    assert_valid(reply)
+    assert (reply["thumbnail"], "outcomeCode" in reply) == ({"kind": "page"}, False)
+    assert reply["details"]["typeCode"] == "pdf"
+
+    engine.send({"id": "p4", "type": "preview", "path": str(docs / "gone.txt")})
+    reply = engine.read()
+    assert_valid(reply)
+    assert reply == {
+        "id": "p4",
+        "type": "previewReady",
+        "details": {"name": "gone.txt", "path": str(docs / "gone.txt"), "typeCode": "text", "size": None, "modified": None},
+        "thumbnail": {"kind": "page"},
+        "outcomeCode": "cannotRead",
+    }
+
+
+def test_preview_of_an_image_over_ten_megabytes_is_too_large(engine: Engine, tmp_path: Path) -> None:
+    big = tmp_path / "big.jpg"
+    with open(big, "wb") as file:
+        file.truncate(12 * 1024 * 1024)  # sparse-sized: only the size matters
+    engine.send({"id": "p5", "type": "preview", "path": str(big)})
+    reply = engine.read()
+    assert_valid(reply)
+    assert (reply["thumbnail"], reply["outcomeCode"]) == ({"kind": "page"}, "tooLarge")
+
+
+def test_a_preview_past_its_deadline_cannot_be_read(test_fs_engine: Engine) -> None:
+    docs = test_fs_engine.documents  # type: ignore[attr-defined]
+    (docs / "SLOWREAD.png").write_bytes(b"")
+    started = time.monotonic()
+    test_fs_engine.send({"id": "p6", "type": "preview", "path": str(docs / "SLOWREAD.png")})
+    reply = test_fs_engine.read(timeout=10)
+    assert (reply["id"], reply["thumbnail"], reply["outcomeCode"]) == ("p6", {"kind": "page"}, "cannotRead")
+    assert 1.5 < time.monotonic() - started < 5
+
+
+def test_a_newer_preview_replaces_the_running_one_and_leaves_a_listing_alone(test_fs_engine: Engine) -> None:
+    docs = test_fs_engine.documents  # type: ignore[attr-defined]
+    (docs / "SLOWREAD.png").write_bytes(b"")
+    (docs / "notes.txt").write_bytes(b"hello")
+    test_fs_engine.send({"id": "l9", "type": "listFolder", "path": "SLOW"})  # still running below
+    test_fs_engine.send({"id": "p7", "type": "preview", "path": str(docs / "SLOWREAD.png")})
+    time.sleep(0.1)
+    test_fs_engine.send({"id": "p8", "type": "preview", "path": str(docs / "notes.txt")})
+    assert test_fs_engine.read() == {"id": "p7", "type": "cancelled"}
+    reply = test_fs_engine.read()
+    assert reply["id"] == "p8" and reply["thumbnail"] == {"kind": "text", "text": "hello"}
+    test_fs_engine.send({"id": "l9", "type": "cancel"})
+    assert test_fs_engine.read() == {"id": "l9", "type": "cancelled"}
+
+
+def test_preview_without_a_path_is_invalid(engine: Engine) -> None:
+    engine.send({"id": "p9", "type": "preview"})
+    assert engine.read() == {"id": "p9", "type": "error", "code": "invalidRequest", "data": {}}

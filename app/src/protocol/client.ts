@@ -7,14 +7,20 @@ import { listen } from "@tauri-apps/api/event";
 import type {
   Cancel,
   Cancelled,
+  CreateFile,
   ErrorMessage,
+  FileCreated,
+  FileRenamed,
   FolderListing,
   ListFolder,
   ListLocations,
+  RenameFile,
   Locations,
   NameMatches,
   Ping,
   Pong,
+  Preview,
+  PreviewReady,
   ProtocolMessage,
   Ready,
   Search,
@@ -32,12 +38,25 @@ export type Request =
   | Omit<ListFolder, "id">
   | Omit<ShowInFolder, "id">
   | Omit<ListLocations, "id">
-  | Omit<Search, "id">;
+  | Omit<Search, "id">
+  | Omit<CreateFile, "id">
+  | Omit<RenameFile, "id">
+  | Omit<Preview, "id">;
 /**
  * Terminal replies, matched to a request by `id`. `cancelled` ends a request that a newer one on
  * the same engine channel replaced (latest wins), or that a `cancel` with its id stopped.
  */
-export type Reply = Pong | StatusReport | FolderListing | Locations | SearchDone | Cancelled | ErrorMessage;
+export type Reply =
+  | Pong
+  | StatusReport
+  | FolderListing
+  | Locations
+  | SearchDone
+  | FileCreated
+  | FileRenamed
+  | PreviewReady
+  | Cancelled
+  | ErrorMessage;
 /** Non-terminal replies: a `search` sends these on its id before its terminal reply (AD-15). */
 export type StreamMessage = SearchParsed | NameMatches;
 const STREAM_TYPES: ReadonlySet<string> = new Set<StreamMessage["type"]>(["searchParsed", "nameMatches"]);

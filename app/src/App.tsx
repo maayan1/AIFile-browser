@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { BrowseSession, type BrowseActions, type BrowseSnapshot } from "./browse/session";
 import { AppShell } from "./components/shell/AppShell";
 import { EngineSession } from "./engine/session";
+import { PreviewSession, type PreviewActions, type PreviewSnapshot } from "./preview/session";
 import { ProtocolClient, tauriTransport } from "./protocol/client";
 import { SearchSession, type SearchActions, type SearchSnapshot, type SearchTrace } from "./search/session";
 import { onScreenTimer } from "./search/timer";
@@ -15,6 +16,8 @@ export default function App() {
   const [actions, setActions] = useState<BrowseActions | undefined>(undefined);
   const [search, setSearch] = useState<SearchSnapshot | undefined>(undefined);
   const [searchActions, setSearchActions] = useState<SearchActions | undefined>(undefined);
+  const [preview, setPreview] = useState<PreviewSnapshot | undefined>(undefined);
+  const [previewActions, setPreviewActions] = useState<PreviewActions | undefined>(undefined);
 
   useEffect(() => {
     const client = new ProtocolClient(tauriTransport());
@@ -31,12 +34,15 @@ export default function App() {
       };
     }
     const searching = new SearchSession(client, trace);
+    const previewing = new PreviewSession(client);
     let active = true;
 
     browsing.subscribe(setBrowse);
     setActions(browsing);
     searching.subscribe(setSearch);
     setSearchActions(searching);
+    previewing.subscribe(setPreview);
+    setPreviewActions(previewing);
     session.subscribe((snapshot) => {
       setBannerVisible(snapshot.bannerVisible);
       // Dev readout (was on screen in 1.1/1.2): engine state, protocol version and status.
@@ -66,6 +72,7 @@ export default function App() {
 
     return () => {
       active = false;
+      previewing.stop();
       searching.stop();
       browsing.stop();
       session.stop();
@@ -79,6 +86,8 @@ export default function App() {
       actions={actions}
       search={search}
       searchActions={searchActions}
+      preview={preview}
+      previewActions={previewActions}
     />
   );
 }

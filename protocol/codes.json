@@ -4,12 +4,21 @@
     "invalidRequest",
     "folderNotFound",
     "accessDenied",
-    "folderUnavailable"
+    "folderUnavailable",
+    "invalidName",
+    "fileExists",
+    "fileNotFound",
+    "fileInUse"
   ],
   "outcomeCodes": [
     "noMatches"
   ],
   "noticeCodes": [
     "permissionSkipped"
+  ],
+  "readOutcomeCodes": [
+    "storedOnlyInOneDrive",
+    "tooLarge",
+    "cannotRead"
   ]
 }

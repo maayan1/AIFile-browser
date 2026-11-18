@@ -494,3 +494,127 @@ describe("childPath", () => {
     expect(childPath("\\\\server\\share\\", "Team")).toBe("\\\\server\\share\\Team");
   });
 });
+
+describe("BrowseSession.createFile", () => {
+  const created = (id: string, name: string, folder = DOCS) =>
+    JSON.stringify({ id, type: "fileCreated", path: `${folder}\\${name}`, name });
+
+  it("sends createFile, then lists the folder again with the new file selected", async () => {
+    const { shell, session, seen } = await inDocuments();
+    const result = session.createFile(DOCS, "notes.txt");
+    expect(shell.sent.at(-1)).toEqual({ id: "u3", type: "createFile", folder: DOCS, name: "notes.txt" });
+    shell.line(created("u3", "notes.txt"));
+    expect(await result).toEqual({ created: true, path: `${DOCS}\\notes.txt` });
+
+    // The refresh: showInFolder on the new file, so the reply selects it.
+    expect(shell.sent.at(-1)).toEqual({ id: "u4", type: "showInFolder", path: `${DOCS}\\notes.txt` });
+    shell.line(JSON.stringify({ ...JSON.parse(listing("u4", DOCS, ["a.txt", "notes.txt"])), selected: "notes.txt" }));
+    await flush();
+    const last = seen.at(-1)!;
+    expect(last.listing?.entries.map((e) => e.name)).toEqual(["a.txt", "notes.txt"]);
+    expect(last.listing?.selected).toBe("notes.txt");
+    expect(last.canBack).toBe(false); // the same folder: no history entry
+  });
+
+  it.each(["fileExists", "invalidName", "accessDenied", "folderNotFound"])(
+    "returns the engine's %s code and lists nothing",
+    async (code) => {
+      const { shell, session } = await inDocuments();
+      const result = session.createFile(DOCS, "notes.txt");
+      shell.line(failure("u3", code));
+      expect(await result).toEqual({ created: false, code });
+      expect(shell.sent.filter((m) => m.type === "showInFolder" || m.type === "listFolder")).toHaveLength(1);
+    },
+  );
+
+  it("doesn't pull the user back to the folder if they have left it meanwhile", async () => {
+    const { shell, session } = await inDocuments();
+    const result = session.createFile(DOCS, "notes.txt");
+    session.open(WORK);
+    shell.line(listing("u4", WORK));
+    shell.line(created("u3", "notes.txt"));
+    expect((await result).created).toBe(true);
+    expect(shell.sent.some((m) => m.type === "showInFolder")).toBe(false);
+  });
+
+  it("doesn't cancel the user's way out when the reply beats the next folder's listing", async () => {
+    const { shell, session, seen } = await inDocuments();
+    const result = session.createFile(DOCS, "notes.txt");
+    session.open(WORK);
+    shell.line(created("u3", "notes.txt"));
+    expect((await result).created).toBe(true);
+    expect(shell.sent.some((m) => m.type === "showInFolder")).toBe(false);
+    shell.line(listing("u4", WORK));
+    await flush();
+    expect(seen.at(-1)!.location).toBe(WORK);
+  });
+
+  it("reports an engine restart as failed", async () => {
+    const { shell, session } = await inDocuments();
+    const result = session.createFile(DOCS, "notes.txt");
+    shell.state("restarting");
+    expect(await result).toEqual({ created: false, code: "failed" });
+  });
+});
+
+describe("BrowseSession.renameFile", () => {
+  const renamed = (id: string, name: string, newName: string, folder = DOCS) =>
+    JSON.stringify({ id, type: "fileRenamed", oldPath: `${folder}\\${name}`, path: `${folder}\\${newName}`, name: newName });
+
+  it("sends renameFile for the file in the listed folder, then lists it again with the file selected", async () => {
+    const { shell, session, seen } = await inDocuments();
+    const result = session.renameFile(DOCS, "notes.txt", "סיכום.txt");
+    expect(shell.sent.at(-1)).toEqual({ id: "u3", type: "renameFile", path: `${DOCS}\\notes.txt`, newName: "סיכום.txt" });
+    shell.line(renamed("u3", "notes.txt", "סיכום.txt"));
+    expect(await result).toEqual({ renamed: true, path: `${DOCS}\\סיכום.txt` });
+
+    // The refresh: showInFolder on the renamed file, so the reply selects it.
+    expect(shell.sent.at(-1)).toEqual({ id: "u4", type: "showInFolder", path: `${DOCS}\\סיכום.txt` });
+    shell.line(JSON.stringify({ ...JSON.parse(listing("u4", DOCS, ["a.txt", "סיכום.txt"])), selected: "סיכום.txt" }));
+    await flush();
+    const last = seen.at(-1)!;
+    expect(last.listing?.entries.map((e) => e.name)).toEqual(["a.txt", "סיכום.txt"]);
+    expect(last.listing?.selected).toBe("סיכום.txt");
+    expect(last.canBack).toBe(false); // the same folder: no history entry
+  });
+
+  it.each(["fileExists", "invalidName", "fileNotFound", "fileInUse", "accessDenied", "folderUnavailable"])(
+    "returns the engine's %s code and lists nothing",
+    async (code) => {
+      const { shell, session } = await inDocuments();
+      const result = session.renameFile(DOCS, "notes.txt", "x.txt");
+      shell.line(failure("u3", code));
+      expect(await result).toEqual({ renamed: false, code });
+      expect(shell.sent.filter((m) => m.type === "showInFolder" || m.type === "listFolder")).toHaveLength(1);
+    },
+  );
+
+  it("doesn't pull the user back to the folder if they have left it meanwhile", async () => {
+    const { shell, session } = await inDocuments();
+    const result = session.renameFile(DOCS, "notes.txt", "x.txt");
+    session.open(WORK);
+    shell.line(listing("u4", WORK));
+    shell.line(renamed("u3", "notes.txt", "x.txt"));
+    expect((await result).renamed).toBe(true);
+    expect(shell.sent.some((m) => m.type === "showInFolder")).toBe(false);
+  });
+
+  it("doesn't cancel the user's way out when the reply beats the next folder's listing", async () => {
+    const { shell, session, seen } = await inDocuments();
+    const result = session.renameFile(DOCS, "notes.txt", "x.txt");
+    session.open(WORK);
+    shell.line(renamed("u3", "notes.txt", "x.txt"));
+    expect((await result).renamed).toBe(true);
+    expect(shell.sent.some((m) => m.type === "showInFolder")).toBe(false);
+    shell.line(listing("u4", WORK));
+    await flush();
+    expect(seen.at(-1)!.location).toBe(WORK);
+  });
+
+  it("reports an engine restart as failed", async () => {
+    const { shell, session } = await inDocuments();
+    const result = session.renameFile(DOCS, "notes.txt", "x.txt");
+    shell.state("restarting");
+    expect(await result).toEqual({ renamed: false, code: "failed" });
+  });
+});

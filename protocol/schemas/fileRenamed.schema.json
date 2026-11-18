@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FileRenamed",
+  "description": "Reply to renameFile: the file now has its new name, in the same folder.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "fileRenamed" },
+    "oldPath": { "description": "The file's full path before the rename, in its on-disk casing.", "type": "string", "minLength": 1 },
+    "path": { "description": "The file's full path now: its folder joined with name.", "type": "string", "minLength": 1 },
+    "name": { "description": "The file's new name, as renamed.", "type": "string", "minLength": 1 }
+  },
+  "required": ["id", "type", "oldPath", "path", "name"],
+  "additionalProperties": false
+}

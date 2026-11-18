@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { t, type CatalogKey } from "@/i18n/catalog";
 
-// The browse list's context menu (FR-3, UX-DR10): "Open" and "Show in folder", nothing else; the
-// app never writes, moves, deletes or renames (C-4). It opens with its first item focused; ↑/↓
+// The rows' context menu (FR-3, UX-DR10): "Open" and "Show in folder", plus "Rename" when the row
+// can be renamed (`onRename`: a file in the browse list; C-4's Rename exception). The app never
+// moves or deletes, and never renames a folder. It opens with its first item focused; ↑/↓
 // move, Enter or a click runs an item, and Esc, Tab or a click outside closes it. Every close
 // hands focus back to the row it opened for (`onClose`). It is fixed to the viewport and placed
 // with logical properties only, so it mirrors under `dir="rtl"`.
@@ -13,9 +14,12 @@ export interface MenuPosition {
   inlineStart: number;
 }
 
-const ITEMS: { key: CatalogKey; run: "open" | "showInFolder" }[] = [
+type Run = "open" | "showInFolder" | "rename";
+
+const ITEMS: { key: CatalogKey; run: Run }[] = [
   { key: "menu.open", run: "open" },
   { key: "menu.showInFolder", run: "showInFolder" },
+  { key: "menu.rename", run: "rename" },
 ];
 
 /** Keeps a box of `size` inside a viewport of `room`, starting at `start` where it fits. */
@@ -27,13 +31,17 @@ export function RowMenu({
   position,
   onOpen,
   onShowInFolder,
+  onRename,
   onClose,
 }: {
   position: MenuPosition;
   onOpen: () => void;
   onShowInFolder: () => void;
+  /** Given when the row can be renamed: adds the Rename item. */
+  onRename?: () => void;
   onClose: () => void;
 }) {
+  const shown = onRename ? ITEMS : ITEMS.filter((item) => item.run !== "rename");
   const menu = useRef<HTMLDivElement>(null);
   const items = useRef<(HTMLButtonElement | null)[]>([]);
   const [placed, setPlaced] = useState(position);
@@ -70,15 +78,16 @@ export function RowMenu({
     };
   }, [onClose]);
 
-  function run(which: "open" | "showInFolder") {
+  function run(which: Run) {
     onClose();
     if (which === "open") onOpen();
-    else onShowInFolder();
+    else if (which === "showInFolder") onShowInFolder();
+    else onRename?.();
   }
 
   function move(step: number) {
     const current = items.current.findIndex((item) => item === document.activeElement);
-    const next = (current + step + ITEMS.length) % ITEMS.length;
+    const next = (current + step + shown.length) % shown.length;
     items.current[next]?.focus();
   }
 
@@ -103,7 +112,7 @@ export function RowMenu({
       }}
       className="fixed z-50 min-w-44 rounded-lg border bg-popover p-1 text-[0.875rem] text-popover-foreground shadow-md"
     >
-      {ITEMS.map(({ key, run: which }, i) => (
+      {shown.map(({ key, run: which }, i) => (
         <button
           key={key}
           ref={(element) => {

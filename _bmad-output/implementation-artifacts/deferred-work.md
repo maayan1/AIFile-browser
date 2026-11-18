@@ -104,3 +104,64 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-2-see-name-results-and-no-matching-files-found.md`
   summary: Names containing bidi control characters (U+202A–202E, U+2066–2069, U+200E/200F) can still reorder or spoof how they display, because `<bdi dir="auto">` doesn't neutralise them inside the name; neither the browse list nor Name matches handles them, and the Correct Display list has no such entry.
   evidence: Unverified, medium if true. To settle it, render a name containing U+202E in the browse list and in ResultList and see whether the extension appears reversed. This has been in the browse list since Story 1.4; Story 7.2 (Hebrew interface) is a natural home for it.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`
+  summary: A 10 MB image preview (a ~13 MB JSON line through engine writer → Rust → Tauri event → data: URL) is not measured against the 2 s preview budget or the 5 s ping timeout, nor is holding ↓ through a folder of large photos.
+  evidence: Unverified, medium if true. To settle it, time a 10 MB JPG preview and a held ↓ through large photos in `tauri dev` on the Baseline PC; lower `IMAGE_MAX_BYTES` if it misses.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`
+  summary: The uncommitted Rename File feature (another session) shares files with Story 2.5 (BrowseList, client.ts, catalog.ts, main.py, windows_fs.py, filesystem.py, codes.json) and needs its own story, review and commit.
+  evidence: Found in Story 2.5's review diff: renameFile hunks in shared files, with RenameFile.tsx, core/rename.py and its schemas untracked; it has no story in epics.md and no sprint-status key.
+  resolved: 2026-11-18. Committed on its own (57833e1) and reviewed in the merge-branch code review; it still has no story in epics.md (see the planning-docs entry below).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`
+  summary: Planning docs still say there is no rename (epics.md UX-DR21 "no ... rename", the Story 1.x row-menu AC "only Open and Show in folder", brief.md, EXPERIENCE.md), contradicting the Rename File work's F2 and menu item.
+  evidence: epics.md:124 and :344 as cited by the Story 2.5 blind-hunter review; only the PRD records the Rename exception.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`
+  summary: `FileSystemPort.create_file`'s docstring still calls it "the port's only write", now false with `rename_file`.
+  evidence: engine/core/ports/filesystem.py create_file docstring, made stale by the Rename File work.
+  resolved: 2026-11-18, in the merge-branch code review: the docstring names both writes.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`
+  summary: `WindowsFileSystem.rename_file` has three edge cases: an isdir-then-os.rename race could rename a folder, `str.casefold` differs from Windows case mapping (e.g. "straße"/"STRASSE"), and an in-use source (winerror 32) is reported as fileExists when the new name exists.
+  evidence: engine/adapters/windows_fs.py rename_file, from the Story 2.5 edge-case-hunter review; Rename File's own review should verify them.
+  reviewed: 2026-11-18. In use onto another item's name reporting fileExists is right (the name is taken either way); the casing-only case is now tested as fileInUse. The isdir race and the casefold difference were rejected as low (rare, and a fix needs a new Win32 path).
+
+## Deferred from: code review of spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md, Rename File and New file + folder-stats MCP (2026-11-18)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`
+  summary: The 2.5 s UI preview timeout (`PREVIEW_TIMEOUT_MS`) leaves 0.5 s over the engine's 2 s read deadline for queue wait, base64, the ~13 MB line and the Tauri relay, so a valid large image could show "This file can't be read". The two values are tied by a comment only, and locate/stat/open run outside the deadline.
+  evidence: Unverified, medium if true. Settle it with the 10 MB timing run above, timed from the UI's request; then raise the UI timeout or share one constant through protocol/.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`
+  summary: Up to 8 previews stuck on an unreachable share fill the channel's `MAX_ABANDONED`; after that every preview, local ones too, queues behind them and times out in the UI.
+  evidence: Pre-existing channel mechanism (engine/adapters/stdio_transport.py `_abandon`), not caused by Story 2.5.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`
+  summary: Docs drift: epic-2-context.md asks for an EN/HE catalog and test (Story 2.5 decided English only), says New file is the only write and the row menu is Open/Show in folder only, describes the Epic 4 panel (header icon, 14px excerpt), and claims Correct Display covers the Preview Panel with no test; epics.md and the spec's notes miss `RECALL_ON_OPEN` and the UI timeout; the FR map still credits Epic 4 with FR-22's text preview.
+  evidence: epic-2-context.md Strings, Read-only and Preview Panel sections; epics.md Story 2.5 AC and FR coverage map. Joins the "no rename" planning-docs entry above.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`
+  summary: A failed preview can't be retried on the same file: selection is keyed on path, size and modified time, so re-clicking the selected row or F5 with the file unchanged sends no new `preview`; after a timeout, a transient lock or an engine restart the panel says "This file can't be read" until another file is selected and back.
+  evidence: previewKey in BrowseList/ResultList/AppShell. Deferred by the author (2026-11-18): rare, and selecting another file and coming back works.
+
+- source: Rename File (commit 57833e1)
+  summary: Window-wide shortcuts still run while typing in the Rename field: Alt+←/→/↑ and F5 list another folder, which closes the form and drops the typed name; Ctrl+E/F and F3 move focus to the Search Bar and leave the form open without focus.
+  evidence: app/src/browse/shortcuts.ts ("they work from any focus, text fields included"); RenameFile.tsx handles only Esc. Needs a UX call (block them in the form, or commit/cancel first, as File Explorer does on blur).
+
+- source: Rename File (commit 57833e1)
+  summary: The Rename form doesn't close on an outside click, blur or Tab, and isn't modal; another row can be selected while the form stays open for the first file.
+  evidence: RenameFile.tsx has no pointerdown/focusout handling, unlike RowMenu. Needs a UX call: File Explorer commits on blur.
+
+- source: Rename File (commit 57833e1)
+  summary: `core/rename.py` lists the whole folder (`fs.list`) to learn whether one item is a file, where the port's `stat` would do; a rename in a folder of tens of thousands of items, or on a slow share, waits for the full listing.
+  evidence: Unverified, medium if true. Time a rename in the 50,000-file tree from Story 2.4.
+
+- source: New file + folder-stats MCP (commits d443a60, 839ccbb)
+  summary: `.mcp.json` launches `mcp-server/dist/index.js` by a path relative to the working directory, so the folder-stats server fails to connect when Claude Code starts in `app/` (as in this review session); `dist/` is gitignored and its build is not documented.
+  evidence: .mcp.json args; this session reported folder-stats CONNECTION_CLOSED with cwd `app/`. Settle whether `${CLAUDE_PROJECT_DIR}` expands in .mcp.json, then use it or a `cwd`, and document `npm run build`.
+
+- source: New file + folder-stats MCP (commits d443a60, 839ccbb)
+  summary: The MCP server's only access boundary, `getSafeDirectory` (stay inside the project root, reject `..`, other drives and junctions out), has no test, and `mcp-server/` has no test runner.
+  evidence: mcp-server/src/index.ts; package.json has only build/start. Needs `node --test` (no new dependency) and the helper moved to its own module.

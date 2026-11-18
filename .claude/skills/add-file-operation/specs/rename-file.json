@@ -1,0 +1,47 @@
+{
+  "operation": "Rename File",
+  "status": "implemented",
+  "request": "renameFile",
+  "reply": "fileRenamed",
+  "channel": "renameFile",
+  "errorCodes": ["invalidName", "fileExists", "fileNotFound", "fileInUse", "accessDenied", "folderUnavailable"],
+  "newErrorCodes": ["fileNotFound", "fileInUse"],
+  "catalogPrefix": "rename",
+  "sessionMethod": "renameFile",
+  "portMethod": "rename_file",
+  "files": {
+    "core": "engine/core/rename.py",
+    "coreTests": "engine/tests/test_rename_core.py",
+    "ui": "app/src/browse/RenameFile.tsx",
+    "uiTests": "app/src/browse/RenameFile.test.tsx"
+  },
+  "fixture": {
+    "folders": ["Photos"],
+    "files": {
+      "existing.txt": "keep me",
+      "other.txt": "other",
+      "Photos/inside.txt": "inside"
+    }
+  },
+  "probes": {
+    "request": { "path": "{root}\\existing.txt", "newName": "{name}" },
+    "nameField": "newName",
+    "success": {
+      "name": "renamed תקציב.txt",
+      "reply": { "name": "{name}" },
+      "created": [{ "path": "{name}", "kind": "file", "content": "keep me" }],
+      "removed": ["existing.txt"],
+      "listFolder": "{root}"
+    },
+    "existingNames": ["other.txt", "OTHER.TXT", "Photos", "photos"],
+    "missingFolder": { "path": "{root}\\gone\\existing.txt" },
+    "missingCode": "fileNotFound",
+    "denied": { "path": "{root}\\existing.txt", "rights": "(D)", "code": "accessDenied" },
+    "cases": [
+      { "label": "case-only rename is allowed (same file)", "name": "EXISTING.txt", "expectCode": null },
+      { "label": "renaming to the same name changes nothing", "name": "existing.txt", "expectCode": null },
+      { "label": "a folder is not a file: fileNotFound", "request": { "path": "{root}\\Photos" }, "name": "Albums", "expectCode": "fileNotFound" },
+      { "label": "a missing file: fileNotFound", "request": { "path": "{root}\\nope.txt" }, "name": "x.txt", "expectCode": "fileNotFound" }
+    ]
+  }
+}

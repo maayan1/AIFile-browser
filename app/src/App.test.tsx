@@ -914,3 +914,24 @@ describe("App search view", () => {
     leftFor("C:\\Work");
   });
 });
+
+describe("App Preview Panel", () => {
+  it("previews a clicked file through the preview session and shows the engine's reply", async () => {
+    await readyApp();
+    reply(listingOf(lastRequest("listFolder").id, DOCS, [{ kind: "knownFolder", code: "documents", path: DOCS }]));
+    await flush();
+    const name = "סיכום ישיבה 3.docx";
+    act(() => void fireEvent.click(within(screen.getByRole("main")).getByText(name).closest("tr")!));
+    const request = lastRequest("preview");
+    expect(request.path).toBe(`${DOCS}\\${name}`);
+    reply({
+      id: request.id,
+      type: "previewReady",
+      details: { name, path: `${DOCS}\\${name}`, typeCode: "word", size: 38912, modified: null },
+      thumbnail: { kind: "text", text: "first lines" },
+    });
+    await flush();
+    const panel = screen.getByRole("complementary", { name: t("preview.label") });
+    expect(panel.querySelector("[data-text]")!.textContent).toBe("first lines");
+  });
+});

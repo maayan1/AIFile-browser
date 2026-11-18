@@ -12,6 +12,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from collections.abc import Callable
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -28,6 +29,8 @@ from adapters.stdio_transport import (
 from adapters.windows_fs import WindowsFileSystem
 from core.browse import FolderUnreadable, list_folder, show_in_folder
 from core.cancel import CancelToken
+from core.create import FILE_EXISTS, INVALID_NAME, CreateRefused, create_file
+from core.rename import FILE_IN_USE, FILE_NOT_FOUND, RenameRefused, rename_file
 from core.errors import (  # re-exported: the folder codes and their mapping live in core
     ACCESS_DENIED,
     DENIED_WINERRORS,
@@ -38,6 +41,7 @@ from core.errors import (  # re-exported: the folder codes and their mapping liv
 )
 from core.locations import locations
 from core.ports.filesystem import FileSystemPort
+from core.preview import Clock, preview
 from core.search import name_search, parse_query
 
 log = logging.getLogger("fb2.main")
@@ -112,6 +116,52 @@ def list_locations_handler(fs: FileSystemPort) -> ChannelHandler:
     return handle
 
 
+def create_file_handler(fs: FileSystemPort) -> ChannelHandler:
+    """The `createFile` handler: fileCreated, or why not as a protocol code. The name is never
+    logged (it is the user's words, like a search)."""
+
+    def handle(request: Message, token: CancelToken) -> Message:
+        try:
+            created = create_file(fs, request["folder"], request["name"], token)
+        except CreateRefused as exc:
+            cause = exc.__cause__
+            log.info("createFile: %s (winerror %s)", exc.code, getattr(cause, "winerror", None))
+            return error(request["id"], exc.code)
+        log.info("createFile: created")
+        return {"id": request["id"], "type": "fileCreated", **created}
+
+    return handle
+
+
+def rename_file_handler(fs: FileSystemPort) -> ChannelHandler:
+    """The `renameFile` handler: fileRenamed, or why not as a protocol code. Neither name is ever
+    logged (they are the user's words, like a search)."""
+
+    def handle(request: Message, token: CancelToken) -> Message:
+        try:
+            renamed = rename_file(fs, request["path"], request["newName"], token)
+        except RenameRefused as exc:
+            cause = exc.__cause__
+            log.info("renameFile: %s (winerror %s)", exc.code, getattr(cause, "winerror", None))
+            return error(request["id"], exc.code)
+        log.info("renameFile: renamed")
+        return {"id": request["id"], "type": "fileRenamed", **renamed}
+
+    return handle
+
+
+def preview_handler(fs: FileSystemPort, clock: Clock = time.monotonic) -> ChannelHandler:
+    """The `preview` handler: previewReady, whose outcomeCode says why a file had no thumbnail.
+    Only the path and the outcome are logged, never anything read from the file."""
+
+    def handle(request: Message, token: CancelToken) -> Message:
+        reply = preview(fs, request["path"], token, clock)
+        log.info("preview %s: %s", request["path"], reply.get("outcomeCode", reply["thumbnail"]["kind"]))
+        return {"id": request["id"], "type": "previewReady", **reply}
+
+    return handle
+
+
 def search_handler(fs: FileSystemPort) -> StreamingHandler:
     """The `search` handler: searchParsed and nameMatches through `emit`, then searchDone, or the
     folder error as a protocol code. The search text is never logged."""
@@ -145,6 +195,14 @@ def main() -> int:
     transport.register_channel("listLocations", "locations", list_locations_handler(fs))
     # Its own channel, latest wins: a new search replaces the running one and nothing else.
     transport.register_channel("search", "search", search_handler(fs), streaming=True)
+    # Its own channel: creating a file must never cancel a listing or a search, nor they it, and a
+    # write to a share that doesn't answer must not hold up the reader thread's pings.
+    transport.register_channel("createFile", "createFile", create_file_handler(fs))
+    # Its own channel too, for the same reasons: never cancels, nor is cancelled by, other work.
+    transport.register_channel("renameFile", "renameFile", rename_file_handler(fs))
+    # Its own channel, latest wins: holding an arrow key replaces each preview with the next, and
+    # a preview never cancels a listing or a search, nor they it.
+    transport.register_channel("preview", "preview", preview_handler(fs))
     transport.send({"id": None, "type": "ready", "protocolVersion": PROTOCOL_VERSION})
     try:
         transport.serve_forever()

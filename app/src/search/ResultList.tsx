@@ -1,5 +1,5 @@
 import { Info, Search } from "lucide-react";
-import { Fragment, useId, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { RowMenu, type MenuPosition } from "@/browse/RowMenu";
 import {
   EmptyState,
@@ -15,6 +15,7 @@ import type { BrowseActions, Place } from "@/browse/session";
 import { t, type CatalogKey } from "@/i18n/catalog";
 import { displayType, formatCount, formatDate, segmentName, typeLabel } from "@/i18n/format";
 import { cn } from "@/lib/utils";
+import { previewKey, type PreviewItem } from "@/preview/session";
 import type { SearchDone, SearchParsed } from "@/protocol/generated";
 import type { NameMatch, SearchSnapshot } from "./session";
 
@@ -31,7 +32,8 @@ import type { NameMatch, SearchSnapshot } from "./session";
 // region announces how the search ended. Notices go in a notice-info banner above the header and
 // list (or the empty state), one sentence each: "Search stopped." for a search Esc stopped (which
 // never shows the no-matches empty state, even with nothing found), and the sentence for each of
-// the engine's `searchDone.notices` codes.
+// the engine's `searchDone.notices` codes. Whenever the selected row changes (or none is selected
+// any more), `onSelect` hears of it, for the Preview Panel.
 
 /** Between location segments and before the date; outside the isolates, so they never reorder. */
 const SEGMENT_SEPARATOR = " › ";
@@ -123,7 +125,23 @@ interface OpenMenu {
   position: MenuPosition;
 }
 
-export function ResultList({ snapshot, actions }: { snapshot: SearchSnapshot; actions?: BrowseActions }) {
+/** A name match as the Preview Panel knows it; a match has no size, so the preview's reply fills it. */
+function previewItem(match: NameMatch): PreviewItem {
+  const { path, name, modified } = match;
+  if (match.kind === "folder") return { kind: "folder", path, name, modified };
+  return { kind: "file", path, name, typeCode: match.typeCode, size: null, modified };
+}
+
+export function ResultList({
+  snapshot,
+  actions,
+  onSelect,
+}: {
+  snapshot: SearchSnapshot;
+  actions?: BrowseActions;
+  /** Told the selected row's item, or null with none selected, each time that changes. */
+  onSelect?: (item: PreviewItem | null) => void;
+}) {
   // The selection belongs to the search it was made in (its searchParsed, which every match follows).
   const [selection, setSelection] = useState<{ parsed: SearchParsed | null; path: string } | null>(null);
   const [menu, setMenu] = useState<OpenMenu | null>(null);
@@ -132,6 +150,13 @@ export function ResultList({ snapshot, actions }: { snapshot: SearchSnapshot; ac
   const { parsed, matches, done, error, root, stopped } = snapshot;
   const selected = selection && selection.parsed === parsed ? selection.path : null;
   const tabStop = matches.some((match) => match.path === selected) ? selected : (matches[0]?.path ?? null);
+  const selectedMatch = selected === null ? undefined : matches.find((match) => match.path === selected);
+  const selectedItem = selectedMatch ? previewItem(selectedMatch) : null;
+  const selectedKey = previewKey(selectedItem);
+  // Keyed on the item, so a re-render, or another batch of matches, says nothing new.
+  useEffect(() => {
+    onSelect?.(selectedItem);
+  }, [selectedKey, onSelect]);
 
   function open(match: NameMatch) {
     if (match.kind === "folder") actions?.open(match.path);

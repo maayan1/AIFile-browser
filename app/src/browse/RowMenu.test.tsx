@@ -35,6 +35,8 @@ function fakeActions(): { [K in keyof BrowseActions]: Mock<BrowseActions[K]> } {
     up: vi.fn<BrowseActions["up"]>(),
     reload: vi.fn<BrowseActions["reload"]>(),
     clearPathError: vi.fn<BrowseActions["clearPathError"]>(),
+    createFile: vi.fn<BrowseActions["createFile"]>(),
+    renameFile: vi.fn<BrowseActions["renameFile"]>(),
   };
 }
 
@@ -55,15 +57,27 @@ function placement() {
 }
 
 describe("RowMenu", () => {
-  it("opens at the pointer on a right-click with exactly Open and Show in folder, and selects the row", () => {
+  it("opens at the pointer on a right-click with exactly Open, Show in folder and Rename on a file, and selects the row", () => {
     setup();
     fireEvent.contextMenu(row("Budget תקציב.pdf"), { button: 2, clientX: 120, clientY: 300 });
-    expect(items().map((item) => item.textContent)).toEqual([t("menu.open"), t("menu.showInFolder")]);
+    expect(items().map((item) => item.textContent)).toEqual([t("menu.open"), t("menu.showInFolder"), t("menu.rename")]);
     expect(row("Budget תקציב.pdf").getAttribute("aria-selected")).toBe("true");
     expect(document.activeElement).toBe(items()[0]);
     expect(placement()).toEqual({ top: "300px", inlineStart: "120px" });
     expect(menu().className).toContain("rounded-lg");
     expect(menu().className).toContain("shadow-md");
+  });
+
+  it("never offers Rename on a folder: exactly Open and Show in folder", () => {
+    setup();
+    fireEvent.contextMenu(row("Photos"), { button: 2, clientX: 1, clientY: 1 });
+    expect(items().map((item) => item.textContent)).toEqual([t("menu.open"), t("menu.showInFolder")]);
+  });
+
+  it("offers no Rename without a session to rename with", () => {
+    render(<BrowseList snapshot={{ ...INITIAL_SNAPSHOT, listing: LISTING, location: DOCS }} />);
+    fireEvent.contextMenu(row("Budget תקציב.pdf"), { button: 2, clientX: 1, clientY: 1 });
+    expect(items().map((item) => item.textContent)).toEqual([t("menu.open"), t("menu.showInFolder")]);
   });
 
   it("measures a right-click from the inline start under dir=rtl", () => {
@@ -93,7 +107,11 @@ describe("RowMenu", () => {
     fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
     expect(document.activeElement).toBe(items()[1]);
     fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(items()[2]);
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" });
     expect(document.activeElement).toBe(items()[0]);
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(items()[2]);
     fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" });
     expect(document.activeElement).toBe(items()[1]);
     fireEvent.keyDown(document.activeElement!, { key: "Enter" });

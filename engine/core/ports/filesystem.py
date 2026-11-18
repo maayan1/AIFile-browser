@@ -1,6 +1,8 @@
 """FileSystemPort: the core's only way to see files (AD-1, AD-8).
 
 Entries come from directory enumeration alone; an adapter never opens a file to fill them in.
+The one read of a file's content is `read_head` (a preview thumbnail): capped, read-only, and never
+of a file whose content is online only.
 
 The port lists one folder at a time. AD-4's one `walk()` lives in the core (`core/walk.py`), built
 on `list()`, so the rules for which folders a walk descends into (`is_candidate`, junction and
@@ -9,7 +11,7 @@ symlink loops, OneDrive's online-only folders) stay in the core rather than in e
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -30,6 +32,14 @@ REPARSE_TAG_NAME_SURROGATE_BIT = 0x20000000
 IO_REPARSE_TAG_MOUNT_POINT = 0xA0000003  # directory junction
 IO_REPARSE_TAG_SYMLINK = 0xA000000C
 IO_REPARSE_TAG_CLOUD_6 = 0x9000601A  # OneDrive placeholder: not a name surrogate
+
+# The attributes that mean a file's content isn't on this PC: opening it for reading would make
+# the cloud provider download it (AD-8). Such a file is never opened.
+ONLINE_ONLY_ATTRIBUTES = FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS | FILE_ATTRIBUTE_RECALL_ON_OPEN | FILE_ATTRIBUTE_OFFLINE
+
+
+class StoredOnline(OSError):
+    """`read_head` refused to open a file whose attributes say its content is online only."""
 
 
 @dataclass(frozen=True)
@@ -104,5 +114,55 @@ class FileSystemPort(Protocol):
 
         Raises FileNotFoundError or NotADirectoryError when the folder is missing, and
         PermissionError when it can't be read.
+        """
+        ...
+
+    def stat(self, path: str) -> FsEntry:
+        """The entry for one existing item (absolute), as its folder's enumeration reports it:
+        name in on-disk casing, size, time, attributes. Nothing is opened (FindFirstFileW).
+
+        Raises FileNotFoundError for a missing item or an empty, relative, device or invalid path,
+        PermissionError, or another OSError (drive not ready, share unreachable).
+        """
+        ...
+
+    def read_head(self, path: str, limit: int, check: Callable[[], None]) -> bytes:
+        """At most the first `limit` bytes of the file `path` (absolute), opened read-only, read in
+        chunks of `rules.preview.READ_CHUNK_BYTES` with `check()` called before each one: it raises
+        to stop (a cancel or a passed deadline), and the file is closed either way. Nothing is
+        written, kept or logged.
+
+        First looks the file up again by enumeration, and raises StoredOnline without opening it
+        when it is online only (ONLINE_ONLY_ATTRIBUTES), even if it wasn't when it was listed.
+        Raises FileNotFoundError, IsADirectoryError, PermissionError, or another OSError (the file
+        is locked, the drive isn't ready).
+        """
+        ...
+
+    def create_file(self, path: str) -> None:
+        """Create the new, empty file `path` (absolute, in an existing folder), atomically: when
+        anything named `path` already exists, in any casing, nothing changes. Never creates a
+        folder, and sets no permissions of its own: the file gets what its folder gives new files.
+        One of the port's two writes, with rename_file (createFile; see core/create.py).
+
+        Raises FileExistsError when an item of that name exists, FileNotFoundError for a relative
+        path or a missing folder, PermissionError when the folder can't be written to, an OSError
+        with winerror 123 or 206 when the OS refuses the name (too long once joined to the folder),
+        or another OSError (drive not ready, share unreachable).
+        """
+        ...
+
+    def rename_file(self, path: str, new_path: str) -> None:
+        """Give the existing file `path` the name in `new_path` (both absolute, in the same folder),
+        atomically: when anything else is named `new_path`, in any casing, nothing changes. A
+        `new_path` that differs from `path` only in casing renames the file in place. Never renames
+        a folder, never moves to another folder, and leaves the content, times and ACL as they are.
+        (renameFile; see core/rename.py.)
+
+        Raises FileExistsError when another item has that name, IsADirectoryError when `path` is a
+        folder, FileNotFoundError for a relative path or a missing file, PermissionError when the
+        file or folder can't be changed, an OSError with winerror 123 or 206 when the OS refuses
+        the new name (too long once joined to the folder), or another OSError (the file is in use:
+        winerror 32; drive not ready, share unreachable).
         """
         ...

@@ -55,7 +55,25 @@ export interface BrowseActions {
   /** Lists the current folder again (F5), keeping history. */
   reload(): void;
   clearPathError(): void;
+  /**
+   * Creates the empty file `name` in the listed folder `folder` (the engine checks the name and
+   * never overwrites). On success, while that folder is still the current one, lists it again with
+   * the new file selected.
+   */
+  createFile(folder: string, name: string): Promise<CreateFileResult>;
+  /**
+   * Renames the file `name` in the listed folder `folder` to `newName`, in that same folder (the
+   * engine checks the name, renames files only and never overwrites). On success, while that
+   * folder is still the current one, lists it again with the renamed file selected.
+   */
+  renameFile(folder: string, name: string, newName: string): Promise<RenameFileResult>;
 }
+
+/** How a New file request ended: the new file's path, or the engine's error code (`failed` otherwise). */
+export type CreateFileResult = { created: true; path: string } | { created: false; code: string };
+
+/** How a Rename request ended: the file's new path, or the engine's error code (`failed` otherwise). */
+export type RenameFileResult = { renamed: true; path: string } | { renamed: false; code: string };
 
 /** A child of a listed folder: the one path the UI builds itself (the engine normalizes it). */
 export function childPath(folder: string, name: string): string {
@@ -174,10 +192,55 @@ export class BrowseSession implements BrowseActions {
     if (this.current.pathError !== null) this.update({ pathError: null });
   }
 
+  createFile(folder: string, name: string): Promise<CreateFileResult> {
+    return this.client.request({ type: "createFile", folder, name }).then(
+      (reply): CreateFileResult => {
+        if (reply.type === "fileCreated") {
+          // The refresh: the folder again, with the new file selected and scrolled into view.
+          this.refreshTo(folder, reply.path);
+          return { created: true, path: reply.path };
+        }
+        return { created: false, code: reply.type === "error" ? reply.code : "failed" };
+      },
+      (err: unknown): CreateFileResult => {
+        // A restart ended the request; whether the file was made, the next listing will show.
+        if (!(err instanceof EngineStoppedError)) console.error("createFile request failed", err);
+        return { created: false, code: "failed" };
+      },
+    );
+  }
+
+  renameFile(folder: string, name: string, newName: string): Promise<RenameFileResult> {
+    return this.client.request({ type: "renameFile", path: childPath(folder, name), newName }).then(
+      (reply): RenameFileResult => {
+        if (reply.type === "fileRenamed") {
+          // The refresh: the folder again, with the renamed file selected and scrolled into view.
+          this.refreshTo(folder, reply.path);
+          return { renamed: true, path: reply.path };
+        }
+        return { renamed: false, code: reply.type === "error" ? reply.code : "failed" };
+      },
+      (err: unknown): RenameFileResult => {
+        // A restart ended the request; whether the file was renamed, the next listing will show.
+        if (!(err instanceof EngineStoppedError)) console.error("renameFile request failed", err);
+        return { renamed: false, code: "failed" };
+      },
+    );
+  }
+
   stop(): void {
     this.active = false;
     this.unsubscribe();
     this.listeners.clear();
+  }
+
+  /**
+   * After a write in `folder`: list it again with `path` selected, unless the user has left it or
+   * is on the way somewhere else (a listing still pending would be replaced, latest wins, and the
+   * user pulled back).
+   */
+  private refreshTo(folder: string, path: string): void {
+    if (this.active && this.location === folder && this.pending === null) this.go({ type: "showInFolder", path }, "push");
   }
 
   /**
