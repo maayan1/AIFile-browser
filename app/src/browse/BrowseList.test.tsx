@@ -455,6 +455,65 @@ describe("BrowseList", () => {
   });
 });
 
+describe("BrowseList selection for the Preview Panel", () => {
+  const BUDGET = {
+    kind: "file",
+    path: `${DOCS}\\Budget תקציב.pdf`,
+    name: "Budget תקציב.pdf",
+    typeCode: "pdf",
+    size: 2.4 * 1024 * 1024,
+    modified: "2025-10-02T12:00:00+00:00",
+  };
+
+  it("tells onSelect the selected file with its full path, a folder as a folder, and none as null", () => {
+    const onSelect = vi.fn();
+    render(<BrowseList snapshot={loaded()} onSelect={onSelect} />);
+    expect(onSelect.mock.calls).toEqual([[null]]);
+    fireEvent.click(row("Budget תקציב.pdf"));
+    expect(onSelect).toHaveBeenLastCalledWith(BUDGET);
+    fireEvent.keyDown(row("Budget תקציב.pdf"), { key: "ArrowUp" });
+    expect(onSelect).toHaveBeenLastCalledWith({ kind: "folder", path: `${DOCS}\\Photos`, name: "Photos", modified: "2025-10-20T12:00:00+00:00" });
+    expect(onSelect).toHaveBeenCalledTimes(3);
+  });
+
+  it("says nothing new for a re-render or a re-list with the file unchanged", () => {
+    const onSelect = vi.fn();
+    const { rerender } = render(<BrowseList snapshot={loaded()} onSelect={onSelect} />);
+    fireEvent.click(row("Budget תקציב.pdf"));
+    fireEvent.click(row("Budget תקציב.pdf"));
+    rerender(<BrowseList snapshot={loaded({ ...LISTING, id: "u2" })} onSelect={onSelect} />);
+    expect(onSelect.mock.calls).toEqual([[null], [BUDGET]]);
+    // The same file, changed on disk: a new preview.
+    const changed = LISTING.entries.map((entry) => (entry.name === "Budget תקציב.pdf" ? { ...entry, size: 5 } : entry));
+    rerender(<BrowseList snapshot={loaded({ ...LISTING, id: "u3", entries: changed })} onSelect={onSelect} />);
+    expect(onSelect).toHaveBeenLastCalledWith({ ...BUDGET, size: 5 });
+  });
+
+  it("tells onSelect null when another folder is listed, the file is gone, or the folder fails", () => {
+    const onSelect = vi.fn();
+    const { rerender } = render(<BrowseList snapshot={loaded()} onSelect={onSelect} />);
+    fireEvent.click(row("Budget תקציב.pdf"));
+    rerender(<BrowseList snapshot={loaded(DESKTOP)} onSelect={onSelect} />);
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+
+    fireEvent.click(row("Budget תקציב.pdf"));
+    expect(onSelect).toHaveBeenLastCalledWith({ ...BUDGET, path: `${DESKTOP.path}\\Budget תקציב.pdf` });
+    rerender(<BrowseList snapshot={loaded({ ...DESKTOP, id: "u10", entries: [] })} onSelect={onSelect} />);
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+
+    rerender(<BrowseList snapshot={loaded(DESKTOP)} onSelect={onSelect} />);
+    fireEvent.click(row("Budget תקציב.pdf"));
+    rerender(<BrowseList snapshot={snapshot({ error: "accessDenied", location: DESKTOP.path })} onSelect={onSelect} />);
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
+
+  it("tells onSelect the item Show in folder selected", () => {
+    const onSelect = vi.fn();
+    render(<BrowseList snapshot={loaded({ ...LISTING, selected: "Budget תקציב.pdf" })} onSelect={onSelect} />);
+    expect(onSelect.mock.calls).toEqual([[BUDGET]]);
+  });
+});
+
 describe("Correct Display in the browse list", () => {
   const TYPES: Record<string, FileEntry["typeCode"]> = {
     docx: "word",

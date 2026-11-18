@@ -29,8 +29,16 @@ export const catalog = {
   "nav.quickAccess": "Quick access",
   "nav.thisPc": "This PC",
   "main.label": "Files",
+  // The Preview Panel. Each readOutcomeCodes code (protocol/codes.json) has a `preview.<code>` sentence.
   "preview.label": "Preview",
   "preview.empty": "Select a file to preview",
+  "preview.type": "Type",
+  "preview.size": "Size",
+  "preview.modified": "Modified",
+  "preview.location": "Location",
+  "preview.storedOnlyInOneDrive": "Stored only in OneDrive",
+  "preview.tooLarge": "This file is too large to preview",
+  "preview.cannotRead": "This file can't be read",
   "status.label": "Status",
 
   "column.name": "Name",

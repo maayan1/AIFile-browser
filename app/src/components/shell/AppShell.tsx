@@ -1,10 +1,12 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BrowseActions, BrowseSnapshot } from "@/browse/session";
 import { useBrowseShortcuts } from "@/browse/shortcuts";
 import type { SearchActions, SearchSnapshot } from "@/search/session";
 import { EngineBanner } from "@/components/EngineBanner";
+import { PreviewPanel } from "@/preview/PreviewPanel";
+import { previewKey, type PreviewActions, type PreviewItem, type PreviewSnapshot } from "@/preview/session";
 import { FilterBar } from "./FilterBar";
-import { MainArea, NavPane, PreviewPanel, StatusBar } from "./panes";
+import { MainArea, NavPane, StatusBar } from "./panes";
 import { TopBar } from "./TopBar";
 
 // The main window frame (UX-DR4), laid out like File Explorer. DOM order is the tab order:
@@ -14,7 +16,9 @@ import { TopBar } from "./TopBar";
 // navigation (a folder opened, Show in folder, Back/Forward/Up, the breadcrumb, the nav pane or a
 // typed path). F5 and opening a file stay in the view. Esc while a search runs only stops it: the
 // view, the text and the focus stay, and the next Esc leaves. ✕ and navigation always leave, and
-// leaving cancels a running search first (the search session's `close`).
+// leaving cancels a running search first (the search session's `close`). The Preview Panel follows
+// the selection of the list on screen: the search results' while the view is open, else the
+// browse list's (which stays mounted, with its selection, under the search view).
 
 /** `actions` with each navigation leaving the search view first (`leave`); F5 and opening a file don't. */
 function leavingSearch(actions: BrowseActions, browse: BrowseSnapshot | undefined, leave: () => void): BrowseActions {
@@ -43,6 +47,8 @@ export function AppShell({
   actions,
   search,
   searchActions,
+  preview,
+  previewActions,
 }: {
   bannerVisible: boolean;
   browse?: BrowseSnapshot;
@@ -51,10 +57,23 @@ export function AppShell({
   search?: SearchSnapshot;
   /** The search session; without it Enter in the Search Bar sends nothing. */
   searchActions?: SearchActions;
+  preview?: PreviewSnapshot;
+  /** The preview session; without it a selected file's thumbnail never loads. */
+  previewActions?: PreviewActions;
 }) {
   const searchInput = useRef<HTMLInputElement>(null);
   const [searchText, setSearchText] = useState("");
   const searching = search?.open === true;
+  const [browseItem, setBrowseItem] = useState<PreviewItem | null>(null);
+  const [searchItem, setSearchItem] = useState<PreviewItem | null>(null);
+  // A closed search view's selection is gone: the next one starts with none, never the last one's.
+  if (!searching && searchItem !== null) setSearchItem(null);
+  const selectedItem = searching ? searchItem : browseItem;
+  const selectedKey = previewKey(selectedItem);
+  // Keyed on the item, so the panel asks the engine only when the selection really changes.
+  useEffect(() => {
+    previewActions?.select(selectedItem);
+  }, [selectedKey, previewActions]);
   // Focused with its text selected, so typing replaces the last search (as in File Explorer).
   const focusSearch = useCallback(() => {
     searchInput.current?.focus();
@@ -100,8 +119,14 @@ export function AppShell({
 
       <div className="flex min-h-0 flex-1">
         <NavPane browse={browse} actions={navigation} />
-        <MainArea browse={browse} actions={navigation} search={search} />
-        <PreviewPanel />
+        <MainArea
+          browse={browse}
+          actions={navigation}
+          search={search}
+          onBrowseSelect={setBrowseItem}
+          onSearchSelect={setSearchItem}
+        />
+        <PreviewPanel item={selectedItem} preview={preview} />
       </div>
 
       <StatusBar />

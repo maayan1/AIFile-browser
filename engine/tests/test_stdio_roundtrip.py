@@ -228,6 +228,15 @@ class TestFileSystem(WindowsFileSystem):
             time.sleep(0.001)
             yield FsEntry(f"f{i}.txt", False, 1, None, 0x20, 0)
 
+    def read_head(self, path, limit, check):
+        if "SLOWREAD" not in path:
+            return super().read_head(path, limit, check)
+        # A file on a share that crawls: one tiny chunk every 10 ms, checking between them.
+        for _ in range(6000):
+            check()
+            time.sleep(0.01)
+        return b""
+
 main.WindowsFileSystem = TestFileSystem
 sys.exit(main.main())
 """
@@ -760,3 +769,114 @@ def test_create_file_runs_beside_a_listing_without_cancelling_it(test_fs_engine:
     assert (docs / "new.txt").is_file()
     test_fs_engine.send({"id": "c6", "type": "cancel"})
     assert test_fs_engine.read() == {"id": "c6", "type": "cancelled"}
+
+
+# ----- preview (spec 2.5 I/O matrix) -------------------------------------------------------------
+
+def make_png(width: int = 4, height: int = 3) -> bytes:
+    """A real PNG: 8-bit RGB, every pixel blue, with valid chunk CRCs."""
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    rows = b"".join(b"\x00" + b"\x00\x00\xff" * width for _ in range(height))
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+
+
+PNG = make_png()
+
+
+def test_preview_sends_a_real_png_and_the_first_lines_of_a_txt(engine: Engine, tmp_path: Path) -> None:
+    import base64
+
+    docs = make_documents(tmp_path)
+    (docs / "photo.png").write_bytes(PNG)
+    (docs / "סיכום ישיבה.txt").write_bytes("﻿שורה ראשונה\nsecond line\n".encode("utf-8") + b"z" * 5000)
+
+    engine.send({"id": "p1", "type": "preview", "path": str(docs / "PHOTO.PNG")})
+    reply = engine.read()
+    assert_valid(reply)
+    assert reply["id"] == "p1" and reply["type"] == "previewReady"
+    assert reply["details"]["name"] == "photo.png" and reply["details"]["path"] == str(docs / "photo.png")
+    assert (reply["details"]["typeCode"], reply["details"]["size"]) == ("image", len(PNG))
+    assert reply["thumbnail"]["kind"] == "image" and reply["thumbnail"]["mime"] == "image/png"
+    assert base64.b64decode(reply["thumbnail"]["data"]) == PNG
+    assert "outcomeCode" not in reply
+
+    engine.send({"id": "p2", "type": "preview", "path": str(docs / "סיכום ישיבה.txt")})
+    raw = engine.read_raw()
+    assert "שורה ראשונה".encode("utf-8") in raw
+    reply = json.loads(raw.decode("utf-8"))
+    assert_valid(reply)
+    text = reply["thumbnail"]["text"]
+    assert text.startswith("שורה ראשונה\nsecond line\n")  # the BOM dropped
+    assert len(text.encode("utf-8")) == 2048 - 3  # the first 2,048 bytes, less the BOM
+    # Reading changed nothing, and nothing read is in the log: only the path and the outcome.
+    assert (docs / "photo.png").read_bytes() == PNG
+    assert engine.close() == 0
+    log = (tmp_path / "engine.log").read_text(encoding="utf-8")
+    assert "שורה ראשונה" not in log and "second line" not in log
+    assert no_schema_violations(tmp_path)
+
+
+def test_preview_of_other_types_and_unreadable_files_is_a_page(engine: Engine, tmp_path: Path) -> None:
+    docs = make_documents(tmp_path)
+    engine.send({"id": "p3", "type": "preview", "path": str(docs / "Budget תקציב.pdf")})
+    reply = engine.read()
+    assert_valid(reply)
+    assert (reply["thumbnail"], "outcomeCode" in reply) == ({"kind": "page"}, False)
+    assert reply["details"]["typeCode"] == "pdf"
+
+    engine.send({"id": "p4", "type": "preview", "path": str(docs / "gone.txt")})
+    reply = engine.read()
+    assert_valid(reply)
+    assert reply == {
+        "id": "p4",
+        "type": "previewReady",
+        "details": {"name": "gone.txt", "path": str(docs / "gone.txt"), "typeCode": "text", "size": None, "modified": None},
+        "thumbnail": {"kind": "page"},
+        "outcomeCode": "cannotRead",
+    }
+
+
+def test_preview_of_an_image_over_ten_megabytes_is_too_large(engine: Engine, tmp_path: Path) -> None:
+    big = tmp_path / "big.jpg"
+    with open(big, "wb") as file:
+        file.truncate(12 * 1024 * 1024)  # sparse-sized: only the size matters
+    engine.send({"id": "p5", "type": "preview", "path": str(big)})
+    reply = engine.read()
+    assert_valid(reply)
+    assert (reply["thumbnail"], reply["outcomeCode"]) == ({"kind": "page"}, "tooLarge")
+
+
+def test_a_preview_past_its_deadline_cannot_be_read(test_fs_engine: Engine) -> None:
+    docs = test_fs_engine.documents  # type: ignore[attr-defined]
+    (docs / "SLOWREAD.png").write_bytes(b"")
+    started = time.monotonic()
+    test_fs_engine.send({"id": "p6", "type": "preview", "path": str(docs / "SLOWREAD.png")})
+    reply = test_fs_engine.read(timeout=10)
+    assert (reply["id"], reply["thumbnail"], reply["outcomeCode"]) == ("p6", {"kind": "page"}, "cannotRead")
+    assert 1.5 < time.monotonic() - started < 5
+
+
+def test_a_newer_preview_replaces_the_running_one_and_leaves_a_listing_alone(test_fs_engine: Engine) -> None:
+    docs = test_fs_engine.documents  # type: ignore[attr-defined]
+    (docs / "SLOWREAD.png").write_bytes(b"")
+    (docs / "notes.txt").write_bytes(b"hello")
+    test_fs_engine.send({"id": "l9", "type": "listFolder", "path": "SLOW"})  # still running below
+    test_fs_engine.send({"id": "p7", "type": "preview", "path": str(docs / "SLOWREAD.png")})
+    time.sleep(0.1)
+    test_fs_engine.send({"id": "p8", "type": "preview", "path": str(docs / "notes.txt")})
+    assert test_fs_engine.read() == {"id": "p7", "type": "cancelled"}
+    reply = test_fs_engine.read()
+    assert reply["id"] == "p8" and reply["thumbnail"] == {"kind": "text", "text": "hello"}
+    test_fs_engine.send({"id": "l9", "type": "cancel"})
+    assert test_fs_engine.read() == {"id": "l9", "type": "cancelled"}
+
+
+def test_preview_without_a_path_is_invalid(engine: Engine) -> None:
+    engine.send({"id": "p9", "type": "preview"})
+    assert engine.read() == {"id": "p9", "type": "error", "code": "invalidRequest", "data": {}}

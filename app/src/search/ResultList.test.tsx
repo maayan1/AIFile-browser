@@ -386,6 +386,36 @@ describe("ResultList", () => {
   });
 });
 
+describe("ResultList selection for the Preview Panel", () => {
+  it("tells onSelect the selected match, with no size for a file, and a folder as a folder", () => {
+    const onSelect = vi.fn();
+    render(<ResultList snapshot={finished([file("report.pdf"), folder("reports")])} onSelect={onSelect} />);
+    expect(onSelect.mock.calls).toEqual([[null]]);
+    fireEvent.click(option("report.pdf"));
+    expect(onSelect).toHaveBeenLastCalledWith({
+      kind: "file",
+      path: `${DOCS}\\report.pdf`,
+      name: "report.pdf",
+      typeCode: "pdf",
+      size: null,
+      modified: OCT_14,
+    });
+    fireEvent.keyDown(option("report.pdf"), { key: "ArrowDown" });
+    expect(onSelect).toHaveBeenLastCalledWith({ kind: "folder", path: `${DOCS}\\reports`, name: "reports", modified: OCT_14 });
+    expect(onSelect).toHaveBeenCalledTimes(3);
+  });
+
+  it("says nothing new when more matches arrive, and null when a new search starts", () => {
+    const onSelect = vi.fn();
+    const { rerender } = render(<ResultList snapshot={snapshot({ matches: [file("report.pdf")] })} onSelect={onSelect} />);
+    fireEvent.click(option("report.pdf"));
+    rerender(<ResultList snapshot={snapshot({ matches: [file("report.pdf"), file("report-final.docx")] })} onSelect={onSelect} />);
+    expect(onSelect).toHaveBeenCalledTimes(2);
+    rerender(<ResultList snapshot={snapshot({ parsed: { ...PARSED, id: "q2" }, matches: [file("report.pdf")] })} onSelect={onSelect} />);
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
+});
+
 describe("matchLocation", () => {
   it("starts with the searched folder's breadcrumb names, then the folders below it", () => {
     expect(matchLocation(ROOT, DOCS)).toEqual(["Documents"]);

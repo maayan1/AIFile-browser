@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PreviewReady",
+  "description": "Terminal reply to preview: the file's details and its thumbnail. Codes and data only; the UI words the type, size, date and outcome. The engine decides which thumbnail a file gets: the image itself for PNG, JPG/JPEG, GIF, WEBP and BMP up to 10 MB, the first 2,048 bytes as text for text and Markdown files, and a page shape for everything else and for any file it couldn't read (then with outcomeCode).",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "previewReady" },
+    "details": { "$ref": "#/definitions/details" },
+    "thumbnail": {
+      "oneOf": [
+        { "$ref": "#/definitions/imageThumbnail" },
+        { "$ref": "#/definitions/textThumbnail" },
+        { "$ref": "#/definitions/pageThumbnail" }
+      ]
+    },
+    "outcomeCode": {
+      "title": "ReadOutcomeCode",
+      "description": "Why the file has no image or text thumbnail, when that needs saying: storedOnlyInOneDrive (online only: never opened), tooLarge (an image over the size cap) or cannotRead (missing, access denied, in use, or not read in time). Only with a page thumbnail. Absent otherwise; listed in codes.json readOutcomeCodes.",
+      "enum": ["storedOnlyInOneDrive", "tooLarge", "cannotRead"]
+    }
+  },
+  "required": ["id", "type", "details", "thumbnail"],
+  "additionalProperties": false,
+  "definitions": {
+    "details": {
+      "title": "PreviewDetails",
+      "type": "object",
+      "properties": {
+        "name": { "description": "The file's on-disk name.", "type": "string", "minLength": 1 },
+        "path": { "description": "The file's full display path, in on-disk casing when the engine could look it up.", "type": "string", "minLength": 1 },
+        "typeCode": {
+          "description": "Same codes as folderListing's FileTypeCode.",
+          "enum": ["pdf", "word", "excel", "powerpoint", "text", "markdown", "image", "audio", "video", "archive", "other"]
+        },
+        "size": { "description": "Size in bytes; null when the file couldn't be looked up.", "type": ["integer", "null"], "minimum": 0 },
+        "modified": {
+          "description": "Same as folderListing's ModifiedTime: ISO 8601 with the local offset; null when unknown.",
+          "type": ["string", "null"],
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?([+-][0-9]{2}:[0-9]{2}|Z)$"
+        }
+      },
+      "required": ["name", "path", "typeCode", "size", "modified"],
+      "additionalProperties": false
+    },
+    "imageThumbnail": {
+      "title": "ImageThumbnail",
+      "description": "The image file's bytes, unchanged (never decoded or resized), as base64.",
+      "type": "object",
+      "properties": {
+        "kind": { "const": "image" },
+        "mime": { "enum": ["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp"] },
+        "data": { "type": "string", "pattern": "^[A-Za-z0-9+/]*={0,2}$" }
+      },
+      "required": ["kind", "mime", "data"],
+      "additionalProperties": false
+    },
+    "textThumbnail": {
+      "title": "TextThumbnail",
+      "description": "The file's first 2,048 bytes as text: UTF-8 (a BOM dropped) or UTF-16 by its BOM, invalid bytes replaced, a character cut off at the end dropped.",
+      "type": "object",
+      "properties": {
+        "kind": { "const": "text" },
+        "text": { "type": "string" }
+      },
+      "required": ["kind", "text"],
+      "additionalProperties": false
+    },
+    "pageThumbnail": {
+      "title": "PageThumbnail",
+      "description": "No content: the UI draws a page with the file's type icon and extension.",
+      "type": "object",
+      "properties": {
+        "kind": { "const": "page" }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    }
+  }
+}

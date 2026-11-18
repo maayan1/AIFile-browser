@@ -17,6 +17,8 @@ import type {
   NameMatches,
   Ping,
   Pong,
+  Preview,
+  PreviewReady,
   ProtocolMessage,
   Ready,
   Search,
@@ -35,7 +37,8 @@ export type Request =
   | Omit<ShowInFolder, "id">
   | Omit<ListLocations, "id">
   | Omit<Search, "id">
-  | Omit<CreateFile, "id">;
+  | Omit<CreateFile, "id">
+  | Omit<Preview, "id">;
 /**
  * Terminal replies, matched to a request by `id`. `cancelled` ends a request that a newer one on
  * the same engine channel replaced (latest wins), or that a `cancel` with its id stopped.
@@ -47,6 +50,7 @@ export type Reply =
   | Locations
   | SearchDone
   | FileCreated
+  | PreviewReady
   | Cancelled
   | ErrorMessage;
 /** Non-terminal replies: a `search` sends these on its id before its terminal reply (AD-15). */

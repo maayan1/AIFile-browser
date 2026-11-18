@@ -12,7 +12,12 @@ const examples = import.meta.glob<Record<string, unknown>>("../../../protocol/ex
   eager: true,
   import: "default",
 });
-const codes = import.meta.glob<{ errorCodes: string[]; outcomeCodes: string[]; noticeCodes: string[] }>("../../../protocol/codes.json", {
+const codes = import.meta.glob<{
+  errorCodes: string[];
+  outcomeCodes: string[];
+  noticeCodes: string[];
+  readOutcomeCodes: string[];
+}>("../../../protocol/codes.json", {
   eager: true,
   import: "default",
 });
@@ -48,7 +53,9 @@ describe("protocol examples", () => {
 
   it("uses only outcome codes listed in codes.json, each with its catalog sentence", () => {
     const listed = Object.values(codes)[0].outcomeCodes;
-    const used = Object.values(examples).flatMap((example) => ("outcomeCode" in example ? [example.outcomeCode as string] : []));
+    const used = Object.values(examples).flatMap((example) =>
+      example.type === "searchDone" && "outcomeCode" in example ? [example.outcomeCode as string] : [],
+    );
     expect(used).toContain("noMatches");
     for (const code of used) expect(listed).toContain(code);
     // The schema allows exactly the listed codes.
@@ -58,6 +65,24 @@ describe("protocol examples", () => {
     expect([...searchDone.properties.outcomeCode.enum].sort()).toEqual([...listed].sort());
     // The UI words every outcome code from the catalog: `search.<code>`.
     for (const code of listed) expect(Object.hasOwn(catalog, `search.${code}`), code).toBe(true);
+  });
+
+  it("uses every read outcome code listed in codes.json, each with its catalog sentence", () => {
+    const listed = Object.values(codes)[0].readOutcomeCodes;
+    const previews = Object.values(examples).filter((example) => example.type === "previewReady");
+    const used = previews.flatMap((example) => ("outcomeCode" in example ? [example.outcomeCode as string] : []));
+    // Each listed code has an example, and the examples use only listed codes.
+    expect([...new Set(used)].sort()).toEqual([...listed].sort());
+    // Each thumbnail kind has an example too.
+    const kinds = previews.map((example) => (example.thumbnail as { kind: string }).kind);
+    expect([...new Set(kinds)].sort()).toEqual(["image", "page", "text"]);
+    // The schema allows exactly the listed codes.
+    const previewReady = Object.entries(schemas).find(([file]) => file.endsWith("/previewReady.schema.json"))![1] as {
+      properties: { outcomeCode: { enum: string[] } };
+    };
+    expect([...previewReady.properties.outcomeCode.enum].sort()).toEqual([...listed].sort());
+    // The UI words every read outcome code from the catalog: `preview.<code>`.
+    for (const code of listed) expect(Object.hasOwn(catalog, `preview.${code}`), code).toBe(true);
   });
 
   it("uses only notice codes listed in codes.json, each with its catalog sentence", () => {

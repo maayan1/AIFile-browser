@@ -4,6 +4,7 @@ import { t, type CatalogKey } from "@/i18n/catalog";
 import { displayType, formatDate, formatSize, typeLabel, type Entry } from "@/i18n/format";
 import { cn } from "@/lib/utils";
 import type { FolderListing } from "@/protocol/generated";
+import { previewKey, type PreviewItem } from "@/preview/session";
 import { RowMenu, type MenuPosition } from "./RowMenu";
 import { EmptyState, FolderErrorState, ICONS, moveTarget, rowContextMenu, rowKeyDown, type MoveKey } from "./rows";
 import { childPath, type BrowseActions, type BrowseSnapshot } from "./session";
@@ -20,7 +21,8 @@ import { DEFAULT_SORT, nextSort, sortEntries, type SortColumn, type SortOrder } 
 // listing names the item to select, and that row is scrolled into view and focused. Names are
 // isolated with <bdi dir="auto"> so a Hebrew or mixed name reads in its own direction with the
 // extension at its end, while the icon stays at the row's start. Logical properties only. The row
-// keys, icons and empty states are shared with the search results (rows.tsx).
+// keys, icons and empty states are shared with the search results (rows.tsx). Whenever the selected
+// row changes (or none is selected any more), `onSelect` hears of it, for the Preview Panel.
 
 const COLUMNS: { column: SortColumn; label: CatalogKey; className: string }[] = [
   { column: "name", label: "column.name", className: "" },
@@ -39,7 +41,23 @@ interface OpenMenu {
   position: MenuPosition;
 }
 
-export function BrowseList({ snapshot, actions }: { snapshot?: BrowseSnapshot; actions?: BrowseActions }) {
+/** A listed entry as the Preview Panel knows it. */
+function previewItem(folder: string, entry: Entry): PreviewItem {
+  const path = childPath(folder, entry.name);
+  if (entry.kind === "folder") return { kind: "folder", path, name: entry.name, modified: entry.modified };
+  return { kind: "file", path, name: entry.name, typeCode: entry.typeCode, size: entry.size, modified: entry.modified };
+}
+
+export function BrowseList({
+  snapshot,
+  actions,
+  onSelect,
+}: {
+  snapshot?: BrowseSnapshot;
+  actions?: BrowseActions;
+  /** Told the selected row's item, or null with none selected, each time that changes. */
+  onSelect?: (item: PreviewItem | null) => void;
+}) {
   const [order, setOrder] = useState<SortOrder>(DEFAULT_SORT);
   // The selection belongs to the listing it was made in; a new listing starts with the item Show
   // in folder named, if any, until the user selects another.
@@ -65,6 +83,13 @@ export function BrowseList({ snapshot, actions }: { snapshot?: BrowseSnapshot; a
     }
   }
   const selected = selectedIn(listing);
+  const selectedEntry = selected === null ? undefined : listing?.entries.find((entry) => entry.name === selected);
+  const selectedItem = listing && selectedEntry ? previewItem(listing.path, selectedEntry) : null;
+  const selectedKey = previewKey(selectedItem);
+  // Keyed on the item, so a re-render, or a re-list with the file unchanged, says nothing new.
+  useEffect(() => {
+    onSelect?.(selectedItem);
+  }, [selectedKey, onSelect]);
   const tabStop = rows.some((entry) => entry.name === selected) ? selected : (rows[0]?.name ?? null);
 
   // When a listing arrives: the row Show in folder named is brought into view and focused.

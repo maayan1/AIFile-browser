@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Preview",
+  "description": "Request: the selected file's details and a thumbnail for the Preview Panel. Sent only on selection, for a file (never a folder). Its own channel, latest wins: a newer preview ends a running one with cancelled, so holding an arrow key never queues previews. The file is only read, never written, opened only when its type has a thumbnail to read, and never opened at all when it is stored only online. The reply is previewReady; a file that can't be read is a previewReady with an outcomeCode, never an error.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "preview" },
+    "path": { "description": "The file's full path: a listed folder's path joined with its name, or a name match's path. Normalized by the engine as showInFolder's path is.", "type": "string", "minLength": 1 }
+  },
+  "required": ["id", "type", "path"],
+  "additionalProperties": false
+}

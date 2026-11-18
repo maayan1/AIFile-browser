@@ -152,7 +152,7 @@ FR-18: Epic 7 - English and Hebrew interface
 FR-19: Epic 8 - Standalone Windows installer
 FR-20: Epic 8 - Manual updates
 FR-21: Epic 8 - Clean uninstall
-FR-22: Epic 4 - Preview the selected file (EARS-02)
+FR-22: Epic 4 - Preview the selected file (EARS-02); Epic 2 Story 2.5 delivers the details, a thumbnail and EARS-02 in the MVP
 FR-23: Epic 6 - Date-only search
 
 ## Epic List
@@ -162,8 +162,8 @@ Users can browse local drives and folders, navigate with breadcrumbs and history
 **FRs covered:** FR-1, FR-2, FR-3, FR-4 (Phase 1)
 
 ### Epic 2: Find files by name
-Users can search file and folder names in the current folder and its subfolders, see name results, cancel a search, and get "No matching files found" when nothing matches.
-**FRs covered:** FR-5, FR-6 (Phase 2)
+Users can search file and folder names in the current folder and its subfolders, see name results, cancel a search, and get "No matching files found" when nothing matches. Add-on Story 2.5 (2026-11-17): a file thumbnail in the Preview Panel.
+**FRs covered:** FR-5, FR-6 (Phase 2); FR-22 in part (Story 2.5: details, thumbnail and EARS-02; no text preview)
 
 ### Epic 3: Let the app read my documents
 Users choose which folders the app searches inside; the app reads their documents in the background with the local model, resumes after interruptions, stays up to date, and explains in "Search folders" what it read and what it couldn't.
@@ -408,7 +408,7 @@ So that I can trust it with my personal documents.
 
 ## Epic 2: Find files by name
 
-Users can search file and folder names in the current folder and its subfolders, see name results, cancel a search, and get "No matching files found" when nothing matches.
+Users can search file and folder names in the current folder and its subfolders, see name results, cancel a search, and get "No matching files found" when nothing matches. Add-on (2026-11-17): the selected file's details and a thumbnail in the Preview Panel (Story 2.5).
 
 ### Story 2.1: Search names in this folder and its subfolders
 
@@ -493,6 +493,51 @@ So that I know it meets its speed target before adding anything heavier.
 **When** name searches run on the Baseline PC (Windows 11, 8 GB RAM, 4 cores), measured from Enter to results on screen
 **Then** 90% finish in under 6 seconds (NFR-3), and the measurement is recorded in the repository
 **And** no filename cache is added unless this measurement misses the target (C-6, spine Deferred)
+
+### Story 2.5: Show a file thumbnail in the Preview Panel
+
+Added 2026-11-17: the project now ends at Epic 2, so Epic 4's text preview won't be built. This story gives the Preview Panel the selected file's details and a thumbnail. Its story spec (`implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`) governs the details.
+
+As Dana,
+I want to see what a file looks like when I select it,
+So that I know it's the right file before I open it.
+
+**Acceptance Criteria:**
+
+**Given** I select a file in the browse list or in Name matches
+**When** the Preview Panel updates
+**Then** it shows the file's name, type, size and modified date at once, beside a square thumbnail at the top-end corner (`clamp(96px, 50%, 192px)` of the panel's content width, ≈144 px at 320 px), with the location below; names and path segments are isolated and the layout uses logical properties only (FR-22, UX-DR13, UX-DR23)
+**And** the thumbnail shows a skeleton until the engine's reply arrives, with no animation under reduced motion
+
+**Given** the selected file is a PNG, JPG/JPEG, GIF, WEBP or BMP image of at most 10 MB
+**When** its thumbnail appears
+**Then** it is the real image (`alt` = the file name, `object-fit: contain`), sent by the engine as base64 with no decoding or resizing; an image that fails to draw shows the page shape and "This file can't be read"
+
+**Given** the selected file is a TXT or MD file
+**When** its thumbnail appears
+**Then** it shows the first lines of its first 2,048 bytes on a "mini page" (UTF-8 with the BOM dropped, UTF-16 by its BOM, invalid bytes replaced, a character cut off at the end dropped)
+
+**Given** any other file (for example PDF, DOCX or ZIP)
+**When** its thumbnail appears
+**Then** it is a page shape with the file's type icon and its extension in capitals; the file is never opened
+
+**Given** a file the engine doesn't read
+**When** it is selected
+**Then** the panel shows the page shape and a plain reason from its `ReadOutcome`: "This file is too large to preview" (`tooLarge`, an image over 10 MB), "Stored only in OneDrive" (`storedOnlyInOneDrive`, `RECALL_ON_DATA_ACCESS` or `OFFLINE` set: the file is never opened, and the adapter checks again just before opening) or "This file can't be read" (`cannotRead`: access denied, missing, locked, past the 2 s deadline, or the engine restarted) (AD-4, AD-8)
+**And** per-file failures are a `previewReady` `outcomeCode`, never a protocol error
+
+**Given** nothing is selected, a folder is selected, or the list is emptied
+**When** the panel updates
+**Then** it shows "Select a file to preview" and sends no request (EARS-02)
+
+**Given** I hold ↓ through a folder of PNG, TXT and PDF files
+**When** the selection changes quickly
+**Then** each new `preview` request cancels the previous one on the engine's latest-wins `preview` channel, the UI drops stale replies, and the panel ends on the last file's thumbnail, each appearing within 2 s (AD-10)
+
+**Given** a preview read
+**When** the engine reads the file
+**Then** it goes through FileSystemPort (`stat`, `read_head`), read-only and only on selection, capped by `engine/core/rules/preview.py` (images ≤ 10 MB, text = 2,048 bytes, the 2 s deadline and the cancel token checked between 64 KB chunks); nothing is cached, and only the path and the outcome code are logged (C-4, NFR-8)
+**And** PDF/DOCX text extraction, the 960–1279 px overlay and Alt+P stay out of scope (Story 4.1, Story 4.2)
 
 ## Epic 3: Let the app read my documents
 

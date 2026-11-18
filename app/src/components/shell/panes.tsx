@@ -4,12 +4,13 @@ import type { BrowseActions, BrowseSnapshot } from "@/browse/session";
 import { t, type CatalogKey } from "@/i18n/catalog";
 import { driveName, knownFolderName } from "@/i18n/format";
 import { cn } from "@/lib/utils";
+import type { PreviewItem } from "@/preview/session";
 import { ResultList } from "@/search/ResultList";
 import type { SearchSnapshot } from "@/search/session";
 
-// The four content areas of the window. The main list shows the browse list (1.4), or the search
-// results while the search view is open (2.2), and the nav pane the places to go (1.5); preview
-// arrives in Epic 4 and status text in Epic 3.
+// The content areas of the window. The main list shows the browse list (1.4), or the search
+// results while the search view is open (2.2), and the nav pane the places to go (1.5); the Preview
+// Panel (2.5) is preview/PreviewPanel.tsx, and status text arrives in Epic 3.
 // Only logical properties (border-e/-s), so `dir="rtl"` mirrors them.
 
 interface NavEntry {
@@ -87,10 +88,16 @@ export function MainArea({
   browse,
   actions,
   search,
+  onBrowseSelect,
+  onSearchSelect,
 }: {
   browse?: BrowseSnapshot;
   actions?: BrowseActions;
   search?: SearchSnapshot;
+  /** Told the browse list's selected item, for the Preview Panel. */
+  onBrowseSelect?: (item: PreviewItem | null) => void;
+  /** Told the search results' selected item, for the Preview Panel. */
+  onSearchSelect?: (item: PreviewItem | null) => void;
 }) {
   const scroller = useRef<HTMLElement>(null);
   const location = browse?.location ?? null;
@@ -101,22 +108,10 @@ export function MainArea({
   return (
     <main ref={scroller} aria-label={t("main.label")} className="min-w-0 flex-1 overflow-auto bg-background px-4">
       <div hidden={searching}>
-        <BrowseList snapshot={browse} actions={actions} />
+        <BrowseList snapshot={browse} actions={actions} onSelect={onBrowseSelect} />
       </div>
-      {search?.open && <ResultList snapshot={search} actions={actions} />}
+      {search?.open && <ResultList snapshot={search} actions={actions} onSelect={onSearchSelect} />}
     </main>
-  );
-}
-
-// Below 1280px the Preview Panel collapse is Story 4.1's job.
-export function PreviewPanel() {
-  return (
-    <aside
-      aria-label={t("preview.label")}
-      className="flex w-preview shrink-0 items-center justify-center overflow-auto border-s bg-surface-pane p-4"
-    >
-      <p className="text-center text-muted-foreground">{t("preview.empty")}</p>
-    </aside>
   );
 }
 

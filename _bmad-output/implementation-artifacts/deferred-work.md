@@ -103,3 +103,23 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-2-see-name-results-and-no-matching-files-found.md`
   summary: Names containing bidi control characters (U+202A–202E, U+2066–2069, U+200E/200F) can still reorder or spoof how they display, because `<bdi dir="auto">` doesn't neutralise them inside the name; neither the browse list nor Name matches handles them, and the Correct Display list has no such entry.
   evidence: Unverified, medium if true. To settle it, render a name containing U+202E in the browse list and in ResultList and see whether the extension appears reversed. This has been in the browse list since Story 1.4; Story 7.2 (Hebrew interface) is a natural home for it.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`
+  summary: A 10 MB image preview (a ~13 MB JSON line through engine writer → Rust → Tauri event → data: URL) is not measured against the 2 s preview budget or the 5 s ping timeout, nor is holding ↓ through a folder of large photos.
+  evidence: Unverified, medium if true. To settle it, time a 10 MB JPG preview and a held ↓ through large photos in `tauri dev` on the Baseline PC; lower `IMAGE_MAX_BYTES` if it misses.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`
+  summary: The uncommitted Rename File feature (another session) shares files with Story 2.5 (BrowseList, client.ts, catalog.ts, main.py, windows_fs.py, filesystem.py, codes.json) and needs its own story, review and commit.
+  evidence: Found in Story 2.5's review diff: renameFile hunks in shared files, with RenameFile.tsx, core/rename.py and its schemas untracked; it has no story in epics.md and no sprint-status key.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`
+  summary: Planning docs still say there is no rename (epics.md UX-DR21 "no ... rename", the Story 1.x row-menu AC "only Open and Show in folder", brief.md, EXPERIENCE.md), contradicting the Rename File work's F2 and menu item.
+  evidence: epics.md:124 and :344 as cited by the Story 2.5 blind-hunter review; only the PRD records the Rename exception.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`
+  summary: `FileSystemPort.create_file`'s docstring still calls it "the port's only write", now false with `rename_file`.
+  evidence: engine/core/ports/filesystem.py create_file docstring, made stale by the Rename File work.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-show-a-file-thumbnail-in-the-preview-panel.md`
+  summary: `WindowsFileSystem.rename_file` has three edge cases: an isdir-then-os.rename race could rename a folder, `str.casefold` differs from Windows case mapping (e.g. "straße"/"STRASSE"), and an in-use source (winerror 32) is reported as fileExists when the new name exists.
+  evidence: engine/adapters/windows_fs.py rename_file, from the Story 2.5 edge-case-hunter review; Rename File's own review should verify them.

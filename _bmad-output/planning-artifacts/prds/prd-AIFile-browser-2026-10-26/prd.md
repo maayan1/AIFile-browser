@@ -332,6 +332,8 @@ The Preview Panel sits beside the file list and the Result List. When the user s
 - The preview appears within 2 seconds of selecting the file on the Baseline PC. `[ASSUMPTION]` Very large files depend on the maximum file size in Open Question 2.
 - Previewing never changes the file (C-4) and works with the keyboard alone (NFR-11).
 
+**Note (2026-11-17): what the MVP ships.** The project ends at Epic 2, so the MVP's Preview Panel is Story 2.5's: the selected file's name, location, type, size and modified date, "Select a file to preview" (EARS-02), and a square thumbnail. Images (PNG, JPG/JPEG, GIF, WEBP, BMP up to 10 MB) show the real image, TXT and MD files show their first lines (the first 2,048 bytes) on a "mini page", and every other file shows a page with its type icon and extension. Files that can't be shown say why: "This file is too large to preview", "Stored only in OneDrive" (never opened) or "This file can't be read". FR-22's text preview (the first 2,000 characters, text-based PDF and DOCX extraction) is out of scope, as are the narrow-window overlay and Alt+P (Story 4.1).
+
 ## 5. Cross-cutting non-functional requirements
 
 | ID | Area | Requirement |
@@ -608,3 +610,8 @@ The author reviewed the UX design with the UX designer. These changes bring the 
 | Change | Reason | Where |
 |---|---|---|
 | The WebView2 runtime's own updater counts as Windows; connections from the app's WebView2 processes are counted, measured in Phase 1 and disabled by configuration | The architecture review found that WebView2 contacts Microsoft servers beyond SmartScreen. The author chose to keep the runtime updated by Windows rather than ship a fixed runtime that never gets security updates. | NFR-1 |
+
+### 12.13 File thumbnail in the MVP (author, 2026-11-17)
+| Change | Reason | Where |
+|---|---|---|
+| The Preview Panel ships in the MVP with Story 2.5: the selected file's details, "Select a file to preview" (EARS-02) and a square thumbnail (the real image for PNG, JPG, GIF, WEBP and BMP up to 10 MB; the first lines of TXT and MD files; a page with the type icon for everything else). FR-22's text preview (2,000 characters, PDF and DOCX extraction) is out of scope. | The project now ends at Epic 2, so Epic 4 won't be built. A thumbnail lets the user check a file before opening it without text extraction. It only reads, on selection, capped and never cached (C-4, NFR-8). | §4.7 (note), Epics: Story 2.5 |

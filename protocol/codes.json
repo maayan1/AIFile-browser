@@ -13,5 +13,10 @@
   ],
   "noticeCodes": [
     "permissionSkipped"
+  ],
+  "readOutcomeCodes": [
+    "storedOnlyInOneDrive",
+    "tooLarge",
+    "cannotRead"
   ]
 }

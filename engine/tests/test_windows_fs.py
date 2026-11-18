@@ -9,15 +9,24 @@ from pathlib import Path
 
 import pytest
 
+from adapters import windows_fs
 from adapters.windows_fs import WindowsFileSystem
 from core.browse import list_folder
 from core.cancel import CancelToken
 from core.ports.filesystem import (
+    FILE_ATTRIBUTE_ARCHIVE,
+    FILE_ATTRIBUTE_DIRECTORY,
     FILE_ATTRIBUTE_HIDDEN,
+    FILE_ATTRIBUTE_NORMAL,
+    FILE_ATTRIBUTE_OFFLINE,
+    FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
+    FILE_ATTRIBUTE_RECALL_ON_OPEN,
     FILE_ATTRIBUTE_REPARSE_POINT,
     FILE_ATTRIBUTE_SYSTEM,
     IO_REPARSE_TAG_MOUNT_POINT,
+    StoredOnline,
 )
+from core.rules.preview import READ_CHUNK_BYTES
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows file system")
 
@@ -440,3 +449,135 @@ def test_create_file_in_a_folder_that_denies_adding_files_raises_permission_erro
     finally:
         allow_listing(locked)
     assert list(locked.iterdir()) == []
+
+
+# ----- stat and read_head: one item's entry, and a preview's capped read ----------------------
+
+
+def test_stat_reports_the_entry_in_on_disk_casing_as_enumeration_does(folder: Path) -> None:
+    fs = WindowsFileSystem()
+    entry = fs.stat(str(folder / "NORMAL.TXT"))
+    listed = next(e for e in fs.list(str(folder)) if e.name == "normal.txt")
+    assert entry == listed
+    assert (entry.name, entry.is_dir, entry.size) == ("normal.txt", False, 1234)
+    assert entry.mtime_ns == (folder / "normal.txt").stat().st_mtime_ns
+    assert entry.attributes & FILE_ATTRIBUTE_ARCHIVE
+    hebrew = fs.stat(str(folder / HEBREW_DOC))
+    assert (hebrew.name, hebrew.size) == (HEBREW_DOC, 3)
+
+
+def test_stat_of_a_folder_has_no_size(folder: Path) -> None:
+    entry = WindowsFileSystem().stat(str(folder / "photos"))
+    assert (entry.name, entry.is_dir, entry.size) == ("Photos", True, 0)
+    assert entry.attributes & FILE_ATTRIBUTE_DIRECTORY
+
+
+@pytest.mark.parametrize("typed", ["", "notes.txt", "C:\\", "\\\\?\\C:\\x.txt", "C:\\*.txt"])
+def test_stat_rejects_roots_and_empty_relative_device_and_wildcard_paths(typed: str) -> None:
+    with pytest.raises(FileNotFoundError):
+        WindowsFileSystem().stat(typed)
+
+
+def test_stat_of_a_missing_item_is_file_not_found(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        WindowsFileSystem().stat(str(tmp_path / "gone.txt"))
+    with pytest.raises(FileNotFoundError):
+        WindowsFileSystem().stat(str(tmp_path / "gone" / "x.txt"))
+
+
+def test_read_head_reads_at_most_the_limit_in_chunks_checking_before_each(tmp_path: Path) -> None:
+    content = bytes(range(256)) * 800  # 204,800 bytes: three full chunks and part of a fourth
+    (tmp_path / "photo.png").write_bytes(content)
+    checks = 0
+
+    def check() -> None:
+        nonlocal checks
+        checks += 1
+
+    assert WindowsFileSystem().read_head(str(tmp_path / "photo.png"), 10 * 1024 * 1024, check) == content
+    assert checks == 5  # four chunks, then the read that finds the end
+    checks = 0
+    assert WindowsFileSystem().read_head(str(tmp_path / "photo.png"), 2048, check) == content[:2048]
+    assert checks == 1
+
+
+def test_read_head_reads_a_hebrew_named_file_and_changes_nothing(tmp_path: Path) -> None:
+    path = tmp_path / "סיכום ישיבה.md"
+    path.write_bytes("# שלום\n".encode())
+    before = path.stat()
+    assert WindowsFileSystem().read_head(str(path), 2048, lambda: None) == "# שלום\n".encode()
+    after = path.stat()
+    assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)
+
+
+def test_read_head_stops_when_check_raises_and_closes_the_file(tmp_path: Path) -> None:
+    path = tmp_path / "photo.png"
+    path.write_bytes(b"p" * (READ_CHUNK_BYTES * 4))
+    calls = 0
+
+    def check() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise TimeoutError("deadline")
+
+    with pytest.raises(TimeoutError):
+        WindowsFileSystem().read_head(str(path), 10 * 1024 * 1024, check)
+    # Python opens without FILE_SHARE_DELETE: a handle left open would block the delete.
+    path.unlink()
+
+
+def test_read_head_never_opens_an_offline_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "notes.txt"
+    path.write_bytes(b"content")
+    set_attributes(path, FILE_ATTRIBUTE_OFFLINE)
+    monkeypatch.setattr(windows_fs, "open", _never_open, raising=False)
+    try:
+        with pytest.raises(StoredOnline):
+            WindowsFileSystem().read_head(str(path), 2048, lambda: None)
+    finally:
+        set_attributes(path, FILE_ATTRIBUTE_NORMAL)
+
+
+@pytest.mark.parametrize("attribute", [FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, FILE_ATTRIBUTE_RECALL_ON_OPEN])
+def test_read_head_checks_the_recall_attribute_again_and_never_opens_such_a_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, attribute: int
+) -> None:
+    # Only a cloud filter driver sets the recall attributes, so the look-up reports one here: the
+    # file was an ordinary one when it was listed, and is online only by the time it is read.
+    path = tmp_path / "photo.png"
+    path.write_bytes(b"content")
+    real_find = windows_fs._find
+
+    def find_online(kernel32, item):  # type: ignore[no-untyped-def]
+        data = real_find(kernel32, item)
+        data.dwFileAttributes |= attribute
+        return data
+
+    monkeypatch.setattr(windows_fs, "_find", find_online)
+    monkeypatch.setattr(windows_fs, "open", _never_open, raising=False)
+    with pytest.raises(StoredOnline):
+        WindowsFileSystem().read_head(str(path), 2048, lambda: None)
+
+
+def _never_open(*args: object, **kwargs: object) -> None:
+    raise AssertionError("an online-only file was opened")
+
+
+def test_read_head_of_a_folder_or_a_missing_file_raises(tmp_path: Path) -> None:
+    (tmp_path / "Photos").mkdir()
+    with pytest.raises(IsADirectoryError):
+        WindowsFileSystem().read_head(str(tmp_path / "Photos"), 2048, lambda: None)
+    with pytest.raises(FileNotFoundError):
+        WindowsFileSystem().read_head(str(tmp_path / "gone.txt"), 2048, lambda: None)
+
+
+def test_read_head_of_a_file_that_can_not_be_read_raises_permission_error(tmp_path: Path) -> None:
+    path = tmp_path / "secret.txt"
+    path.write_bytes(b"content")
+    subprocess.run(["icacls", str(path), "/deny", "*S-1-1-0:(RD)"], check=True, capture_output=True)
+    try:
+        with pytest.raises(PermissionError):
+            WindowsFileSystem().read_head(str(path), 2048, lambda: None)
+    finally:
+        subprocess.run(["icacls", str(path), "/remove:d", "*S-1-1-0"], check=True, capture_output=True)

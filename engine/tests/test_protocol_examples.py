@@ -72,7 +72,7 @@ def outcome_codes() -> set[str]:
 
 def test_every_outcome_code_is_listed_in_codes_json() -> None:
     examples = [load(p) for p in EXAMPLES]
-    used = {e["outcomeCode"] for e in examples if "outcomeCode" in e}
+    used = {e["outcomeCode"] for e in examples if e["type"] == "searchDone" and "outcomeCode" in e}
     assert used <= outcome_codes(), f"outcome codes missing from codes.json: {used - outcome_codes()}"
     assert "noMatches" in used  # the code has an example
     # The schema allows exactly the listed codes.
@@ -83,6 +83,30 @@ def test_engine_outcome_codes_are_listed_in_codes_json() -> None:
     from core import search
 
     assert {search.NO_MATCHES} <= outcome_codes()
+
+
+def read_outcome_codes() -> list[str]:
+    return load(PROTOCOL_DIR / "codes.json")["readOutcomeCodes"]
+
+
+def test_every_read_outcome_code_has_an_example_the_schema_and_a_catalog_sentence() -> None:
+    examples = [load(p) for p in EXAMPLES if load(p)["type"] == "previewReady"]
+    used = {e["outcomeCode"] for e in examples if "outcomeCode" in e}
+    assert used == set(read_outcome_codes())  # each code has an example, and only listed codes are used
+    # Each thumbnail kind has an example too.
+    assert {e["thumbnail"]["kind"] for e in examples} == {"image", "text", "page"}
+    # The schema allows exactly the listed codes.
+    assert schema_for("previewReady")["properties"]["outcomeCode"]["enum"] == read_outcome_codes()
+    # The UI words every read outcome code from the catalog: `preview.<code>`.
+    catalog = CATALOG.read_text(encoding="utf-8")
+    for code in read_outcome_codes():
+        assert f'"preview.{code}":' in catalog, code
+
+
+def test_engine_read_outcomes_for_preview_are_listed_in_codes_json() -> None:
+    from core.outcomes import PREVIEW_OUTCOMES
+
+    assert [outcome.value for outcome in PREVIEW_OUTCOMES] == read_outcome_codes()
 
 
 CATALOG = PROTOCOL_DIR.parent / "app" / "src" / "i18n" / "catalog.ts"

@@ -12,6 +12,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from collections.abc import Callable
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -39,6 +40,7 @@ from core.errors import (  # re-exported: the folder codes and their mapping liv
 )
 from core.locations import locations
 from core.ports.filesystem import FileSystemPort
+from core.preview import Clock, preview
 from core.search import name_search, parse_query
 
 log = logging.getLogger("fb2.main")
@@ -130,6 +132,18 @@ def create_file_handler(fs: FileSystemPort) -> ChannelHandler:
     return handle
 
 
+def preview_handler(fs: FileSystemPort, clock: Clock = time.monotonic) -> ChannelHandler:
+    """The `preview` handler: previewReady, whose outcomeCode says why a file had no thumbnail.
+    Only the path and the outcome are logged, never anything read from the file."""
+
+    def handle(request: Message, token: CancelToken) -> Message:
+        reply = preview(fs, request["path"], token, clock)
+        log.info("preview %s: %s", request["path"], reply.get("outcomeCode", reply["thumbnail"]["kind"]))
+        return {"id": request["id"], "type": "previewReady", **reply}
+
+    return handle
+
+
 def search_handler(fs: FileSystemPort) -> StreamingHandler:
     """The `search` handler: searchParsed and nameMatches through `emit`, then searchDone, or the
     folder error as a protocol code. The search text is never logged."""
@@ -166,6 +180,9 @@ def main() -> int:
     # Its own channel: creating a file must never cancel a listing or a search, nor they it, and a
     # write to a share that doesn't answer must not hold up the reader thread's pings.
     transport.register_channel("createFile", "createFile", create_file_handler(fs))
+    # Its own channel, latest wins: holding an arrow key replaces each preview with the next, and
+    # a preview never cancels a listing or a search, nor they it.
+    transport.register_channel("preview", "preview", preview_handler(fs))
     transport.send({"id": None, "type": "ready", "protocolVersion": PROTOCOL_VERSION})
     try:
         transport.serve_forever()
