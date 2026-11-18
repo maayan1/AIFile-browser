@@ -1,0 +1,13 @@
+{
+  "name": "team-tools",
+  "owner": {
+    "name": "AIFile Browser Team"
+  },
+  "plugins": [
+    {
+      "name": "code-reviewer",
+      "source": "./plugins/code-reviewer",
+      "description": "Targeted file security and code review"
+    }
+  ]
+}

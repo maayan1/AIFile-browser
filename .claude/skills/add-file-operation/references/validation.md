@@ -71,7 +71,7 @@ Copy [create-file.json](../specs/create-file.json) and edit it. Every field:
 | `fixture` | `folders` (list) and `files` (path → UTF-8 content), built fresh for each probe under `{root}`. |
 | `probes.request` | The request fields (without `id` and `type`). `{root}` is the fixture folder, `{name}` is the probed name. |
 | `probes.nameField` | The field holding the user's name; `null` skips the invalid-name probes. |
-| `probes.success` | `name`, the `reply` fields expected, `created` (`[{path, kind: file\|folder, content}]`), `removed` (paths), and `listFolder` (the folder to list for the refresh check). |
+| `probes.success` | `name`, the `reply` fields expected, `created` (`[{path, kind: file\|folder, content}]`), `removed` (paths), and `listFolder` (the folder to list for the refresh check). Write names in `reply` and `created` as `{name}`, not literally: success-type `cases` reuse them with their own name. |
 | `probes.existingNames` | Names that already exist in the fixture (vary the casing; include a folder). |
 | `probes.missingFolder` | Fields to override so the folder or source is missing. |
 | `probes.denied` | `{path, rights, code}`: deny `rights` (icacls syntax: `(WD)` add file, `(AD)` add folder, `(D)` delete) on `path`. |

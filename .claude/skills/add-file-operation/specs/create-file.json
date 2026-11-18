@@ -27,7 +27,7 @@
     "nameField": "name",
     "success": {
       "name": "new תקציב.txt",
-      "reply": { "name": "new תקציב.txt" },
+      "reply": { "name": "{name}" },
       "created": [{ "path": "new תקציב.txt", "kind": "file", "content": "" }],
       "removed": [],
       "listFolder": "{root}"

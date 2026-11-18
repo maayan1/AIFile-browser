@@ -1,6 +1,7 @@
 ---
 name: add-file-operation
-description: Add or update one file operation (Create File, Create Folder, Rename File, Copy File, ...) in the local File Browser, end to end through the protocol, the Python engine and the TypeScript UI, with the proven Create File safety rules, tests and a reusable validator. Use when implementing or changing any operation that writes to the user's files.
+description: Implement or extend file management features in the File Browser, including buttons and actions for creating, renaming, deleting, copying, moving, or duplicating files and creating folders. Use when asked to add a new file operation or change its behavior. Do not use for visual styling, layout changes, code explanations, or ordinary file creation and editing in the project.
+
 ---
 
 # Add a file operation
@@ -35,6 +36,7 @@ Create File (`createFile`) is the proven reference implementation. Every step be
 | [scripts/validate_operation.py](scripts/validate_operation.py) | Reusable validator: static wiring, live engine probes, project suites |
 | [scripts/check_skill.py](scripts/check_skill.py) | Self-check of this skill package, plus live validation of every implemented spec |
 | [specs/create-file.json](specs/create-file.json) | The spec of the reference implementation: copy it for a new operation |
+| [specs/rename-file.json](specs/rename-file.json) | Rename File: rename one file in its own folder (row menu and F2) |
 
 When you add `specs/<op>.json`, add a link to it in this table. `check_skill.py` fails while any
 file in this folder isn't linked from here.
