@@ -21,5 +21,22 @@ It is used by:
 
 Story 7.2 reuses the list for the Hebrew interface.
 
+## Large tree (name-search speed)
+
+`make_large_tree.py` builds the synthetic tree for the NFR-3 measurement (Story 2.4):
+`python fixtures/make_large_tree.py <empty folder> [--seed N] [--files N]`. The default (seed 2024,
+50,000 files) gives about 2,500 nested folders, a few very large folders, English, Hebrew and
+mixed names with the usual extensions, and empty files. The same seed and file count give the
+same relative paths with the same Python minor version (3.14), so the tree itself is never
+committed. It writes only inside the folder given (creating it, but not its parents, when missing),
+and refuses (exit 2, nothing written) a folder that isn't empty or whose parent doesn't exist.
+
+It plants names so each of the 20 searches in `engine/scripts/measure_name_search.py` hits its
+intended range; change the two lists together. It is used by:
+
+- the measurement, `engine/scripts/measure_name_search.py` (method and results in
+  `docs/name-search-speed.md`);
+- `engine/tests/test_name_search_measurement.py`, on small trees in temp folders.
+
 Later stories add the FR-14 Date Phrase list, filler and nonsense-query lists,
 the SM-1 synthetic collection and the EARS fixtures here.
