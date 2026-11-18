@@ -10,9 +10,11 @@ import type {
   CreateFile,
   ErrorMessage,
   FileCreated,
+  FileRenamed,
   FolderListing,
   ListFolder,
   ListLocations,
+  RenameFile,
   Locations,
   NameMatches,
   Ping,
@@ -38,6 +40,7 @@ export type Request =
   | Omit<ListLocations, "id">
   | Omit<Search, "id">
   | Omit<CreateFile, "id">
+  | Omit<RenameFile, "id">
   | Omit<Preview, "id">;
 /**
  * Terminal replies, matched to a request by `id`. `cancelled` ends a request that a newer one on
@@ -50,6 +53,7 @@ export type Reply =
   | Locations
   | SearchDone
   | FileCreated
+  | FileRenamed
   | PreviewReady
   | Cancelled
   | ErrorMessage;

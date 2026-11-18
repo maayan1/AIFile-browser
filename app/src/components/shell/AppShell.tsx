@@ -38,6 +38,7 @@ function leavingSearch(actions: BrowseActions, browse: BrowseSnapshot | undefine
     reload: () => actions.reload(),
     clearPathError: () => actions.clearPathError(),
     createFile: (folder, name) => actions.createFile(folder, name),
+    renameFile: (folder, name, newName) => actions.renameFile(folder, name, newName),
   };
 }
 

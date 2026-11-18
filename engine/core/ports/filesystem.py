@@ -150,3 +150,17 @@ class FileSystemPort(Protocol):
         OSError (drive not ready, share unreachable, a name the OS refuses).
         """
         ...
+
+    def rename_file(self, path: str, new_path: str) -> None:
+        """Give the existing file `path` the name in `new_path` (both absolute, in the same folder),
+        atomically: when anything else is named `new_path`, in any casing, nothing changes. A
+        `new_path` that differs from `path` only in casing renames the file in place. Never renames
+        a folder, never moves to another folder, and leaves the content, times and ACL as they are.
+        (renameFile; see core/rename.py.)
+
+        Raises FileExistsError when another item has that name, IsADirectoryError when `path` is a
+        folder, FileNotFoundError for a relative path or a missing file, PermissionError when the
+        file or folder can't be changed, or another OSError (the file is in use: winerror 32;
+        drive not ready, share unreachable, a name the OS refuses).
+        """
+        ...

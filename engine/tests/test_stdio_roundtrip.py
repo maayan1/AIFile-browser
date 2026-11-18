@@ -771,6 +771,70 @@ def test_create_file_runs_beside_a_listing_without_cancelling_it(test_fs_engine:
     assert test_fs_engine.read() == {"id": "c6", "type": "cancelled"}
 
 
+# ----- renameFile ------------------------------------------------------------------------------
+
+
+def test_rename_file_renames_in_place_then_refuses_to_overwrite(engine: Engine, tmp_path: Path) -> None:
+    docs = make_documents(tmp_path)
+    old = docs / "Budget תקציב.pdf"
+    old.write_bytes(b"keep me")
+    engine.send({"id": "r1", "type": "renameFile", "path": str(old).upper(), "newName": "תקציב 2026.pdf"})
+    reply = engine.read()
+    assert_valid(reply)
+    assert reply == {"id": "r1", "type": "fileRenamed", "oldPath": str(old), "path": str(docs / "תקציב 2026.pdf"), "name": "תקציב 2026.pdf"}
+    assert not old.exists()
+    assert (docs / "תקציב 2026.pdf").read_bytes() == b"keep me"
+
+    # Onto another file's name (any casing) or a folder's: refused, both left as they were.
+    for taken in ["סיכום ישיבה 3.DOCX", "photos"]:
+        engine.send({"id": "r2", "type": "renameFile", "path": str(docs / "תקציב 2026.pdf"), "newName": taken})
+        assert engine.read() == {"id": "r2", "type": "error", "code": "fileExists", "data": {}}
+    assert (docs / "סיכום ישיבה 3.docx").read_bytes() == b"x" * 38912
+    assert (docs / "Photos").is_dir()
+
+    # The renamed file is in the next listing, so the UI's refresh shows it.
+    engine.send({"id": "r3", "type": "listFolder", "path": str(docs)})
+    names = {e["name"] for e in engine.read()["entries"]}
+    assert "תקציב 2026.pdf" in names and "Budget תקציב.pdf" not in names
+    assert no_schema_violations(tmp_path)
+
+
+@pytest.mark.parametrize("name", ["", "..", r"..\escaped.pdf", "../escaped.pdf", r"Photos\moved.pdf", r"C:\escaped.pdf", "a:b", "CON"])
+def test_rename_file_rejects_invalid_names_and_never_moves_the_file(engine: Engine, tmp_path: Path, name: str) -> None:
+    docs = make_documents(tmp_path)
+    before = sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*"))
+    engine.send({"id": "r4", "type": "renameFile", "path": str(docs / "Budget תקציב.pdf"), "newName": name})
+    assert engine.read() == {"id": "r4", "type": "error", "code": "invalidName", "data": {}}
+    assert sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*")) == before
+
+
+@pytest.mark.parametrize("target", ["Photos", "gone.pdf", r"gone\Budget תקציב.pdf"])
+def test_rename_file_of_a_folder_or_a_missing_file_is_file_not_found(engine: Engine, tmp_path: Path, target: str) -> None:
+    docs = make_documents(tmp_path)
+    engine.send({"id": "r5", "type": "renameFile", "path": str(docs / target), "newName": "renamed"})
+    assert engine.read() == {"id": "r5", "type": "error", "code": "fileNotFound", "data": {}}
+    assert (docs / "Photos").is_dir() and not (docs / "renamed").exists()
+
+
+def test_rename_file_of_a_file_in_use_is_file_in_use(engine: Engine, tmp_path: Path) -> None:
+    docs = make_documents(tmp_path)
+    with open(docs / "Budget תקציב.pdf", "rb"):
+        engine.send({"id": "r6", "type": "renameFile", "path": str(docs / "Budget תקציב.pdf"), "newName": "x.pdf"})
+        assert engine.read() == {"id": "r6", "type": "error", "code": "fileInUse", "data": {}}
+    assert (docs / "Budget תקציב.pdf").exists()
+
+
+def test_rename_file_runs_beside_a_listing_without_cancelling_it(test_fs_engine: Engine) -> None:
+    docs = test_fs_engine.documents  # type: ignore[attr-defined]
+    (docs / "old.txt").write_bytes(b"")
+    test_fs_engine.send({"id": "r7", "type": "listFolder", "path": "SLOW"})  # still running below
+    test_fs_engine.send({"id": "r8", "type": "renameFile", "path": str(docs / "old.txt"), "newName": "new.txt"})
+    assert test_fs_engine.read()["id"] == "r8"  # answered while the listing runs
+    assert (docs / "new.txt").is_file()
+    test_fs_engine.send({"id": "r7", "type": "cancel"})
+    assert test_fs_engine.read() == {"id": "r7", "type": "cancelled"}
+
+
 # ----- preview (spec 2.5 I/O matrix) -------------------------------------------------------------
 
 def make_png(width: int = 4, height: int = 3) -> bytes:

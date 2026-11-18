@@ -77,6 +77,7 @@ describe("AppShell", () => {
       reload: vi.fn(),
       clearPathError: vi.fn(),
       createFile: vi.fn(),
+      renameFile: vi.fn(),
     };
     const { container } = render(<AppShell bannerVisible={false} browse={browse} actions={actions} />);
 
@@ -182,6 +183,29 @@ describe("AppShell New file", () => {
     expect(newFile().disabled).toBe(true);
     rerender(<AppShell bannerVisible={false} browse={browse} actions={actions} search={{ ...INITIAL_SEARCH, open: true }} />);
     expect(newFile().disabled).toBe(true);
+  });
+});
+
+describe("AppShell Rename", () => {
+  const docs = "C:\\Users\\dana\\Documents";
+  const listing: FolderListing = {
+    id: "u1",
+    type: "folderListing",
+    path: docs,
+    parent: "C:\\Users\\dana",
+    segments: [{ kind: "knownFolder", code: "documents", path: docs }],
+    entries: [{ name: "notes.txt", kind: "file", typeCode: "text", size: 1, modified: null }],
+  };
+  const browse: BrowseSnapshot = { ...INITIAL_SNAPSHOT, listing, place: listing, location: docs };
+
+  it("renames a listed file through the browse session (F2, a new name, Rename)", () => {
+    const renameFile = vi.fn<BrowseActions["renameFile"]>(async () => ({ renamed: true, path: `${docs}\\b.txt` }));
+    const actions = { renameFile } as unknown as BrowseActions;
+    render(<AppShell bannerVisible={false} browse={browse} actions={actions} />);
+    fireEvent.keyDown(screen.getByText("notes.txt").closest("tr")!, { key: "F2" });
+    fireEvent.change(screen.getByRole("textbox", { name: t("rename.name") }), { target: { value: "b.txt" } });
+    fireEvent.click(screen.getByRole("button", { name: t("rename.save") }));
+    expect(renameFile).toHaveBeenCalledExactlyOnceWith(docs, "notes.txt", "b.txt");
   });
 });
 

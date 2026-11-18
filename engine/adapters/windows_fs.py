@@ -313,3 +313,20 @@ class WindowsFileSystem:
                 raise FileExistsError(path) from None
             raise
         os.close(fd)
+
+    def rename_file(self, path: str, new_path: str) -> None:
+        if not (os.path.isabs(path) and os.path.isabs(new_path)):
+            raise FileNotFoundError(path)
+        if os.path.isdir(path):
+            raise IsADirectoryError(path)
+        # os.rename is MoveFileExW without MOVEFILE_REPLACE_EXISTING: the OS refuses, in one step,
+        # when anything already has the new name, so nothing is ever overwritten. A new name that
+        # differs only in casing names this same file, which the OS renames in place.
+        same_file = path.casefold() == new_path.casefold()
+        try:
+            os.rename(path, new_path)
+        except PermissionError:
+            # A file renamed onto an existing folder's name fails as access denied.
+            if not same_file and os.path.lexists(new_path):
+                raise FileExistsError(new_path) from None
+            raise

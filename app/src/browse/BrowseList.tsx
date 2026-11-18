@@ -5,6 +5,7 @@ import { displayType, formatDate, formatSize, typeLabel, type Entry } from "@/i1
 import { cn } from "@/lib/utils";
 import type { FolderListing } from "@/protocol/generated";
 import { previewKey, type PreviewItem } from "@/preview/session";
+import { RenameFile } from "./RenameFile";
 import { RowMenu, type MenuPosition } from "./RowMenu";
 import { EmptyState, FolderErrorState, ICONS, moveTarget, rowContextMenu, rowKeyDown, type MoveKey } from "./rows";
 import { childPath, type BrowseActions, type BrowseSnapshot } from "./session";
@@ -13,7 +14,8 @@ import { DEFAULT_SORT, nextSort, sortEntries, type SortColumn, type SortOrder } 
 // The browse list (FR-1, FR-3): a table with a sticky, sortable header. A click selects one row
 // and focuses it; double-click or Enter opens it: a folder in the app, a file in its Windows
 // default app. A right click, Shift+F10 or the Menu key selects the row and opens its menu (Open,
-// Show in folder); Ctrl+Shift+E runs Show in folder. Focus and selection are separate, as in File
+// Show in folder, and Rename on a file); Ctrl+Shift+E runs Show in folder, and F2 renames a file
+// (never a folder: C-4's Rename exception) in a form below its row. Focus and selection are separate, as in File
 // Explorer (UX-DR22): the list's one tab stop is the selected row, or else the first; ↑/↓ select the
 // focused row, then move the selection and focus (no wrap); Home/End go to the ends; Space selects.
 // A new folder's listing selects nothing and, when focus was on the page or in the list, focuses its
@@ -32,6 +34,13 @@ const COLUMNS: { column: SortColumn; label: CatalogKey; className: string }[] = 
 ];
 
 const SKELETON_ROWS = 8;
+
+/** A file being renamed: the listing and row it belongs to. */
+interface Renaming {
+  listing: FolderListing;
+  entry: Entry;
+  row: HTMLElement;
+}
 
 /** An open context menu: the listing and row it belongs to, and where it goes. */
 interface OpenMenu {
@@ -63,6 +72,7 @@ export function BrowseList({
   // in folder named, if any, until the user selects another.
   const [selection, setSelection] = useState<{ listing: FolderListing; name: string } | null>(null);
   const [menu, setMenu] = useState<OpenMenu | null>(null);
+  const [renaming, setRenaming] = useState<Renaming | null>(null);
   const body = useRef<HTMLTableSectionElement>(null);
   /** The path of the listing on screen before this one; null after an error. */
   const lastPath = useRef<string | null>(null);
@@ -90,6 +100,13 @@ export function BrowseList({
   useEffect(() => {
     onSelect?.(selectedItem);
   }, [selectedKey, onSelect]);
+
+  // The Rename form belongs to its folder and file: another folder listed, or the file gone from a
+  // re-list, closes it.
+  const renameOpen =
+    renaming !== null && listing !== null && renaming.listing.path === listing.path &&
+    listing.entries.some((entry) => entry.name === renaming.entry.name);
+  if (renaming && !renameOpen) setRenaming(null);
   const tabStop = rows.some((entry) => entry.name === selected) ? selected : (rows[0]?.name ?? null);
 
   // When a listing arrives: the row Show in folder named is brought into view and focused.
@@ -126,6 +143,15 @@ export function BrowseList({
     row.focus({ preventScroll: true });
   }
 
+  /** Rename for a file row, when the session can rename; folders never get it. */
+  function renameFor(where: FolderListing, entry: Entry) {
+    if (entry.kind !== "file" || !actions) return undefined;
+    return (row: HTMLElement) => {
+      setSelection({ listing: where, name: entry.name });
+      setRenaming({ listing: where, entry, row });
+    };
+  }
+
   function open(where: FolderListing, entry: Entry) {
     const path = childPath(where.path, entry.name);
     if (entry.kind === "folder") actions?.open(path);
@@ -141,6 +167,7 @@ export function BrowseList({
   }
 
   const loading = !listing || snapshot?.loading === true;
+  const menuRename = menu ? renameFor(menu.listing, menu.entry) : undefined;
   return (
     <>
       <table aria-busy={loading} className="w-full table-fixed border-separate border-spacing-0">
@@ -187,6 +214,7 @@ export function BrowseList({
                 onOpen={() => open(listing, entry)}
                 onMove={(key) => move(listing, entry, key)}
                 onShowInFolder={() => actions?.showInFolder(childPath(listing.path, entry.name))}
+                onRename={renameFor(listing, entry)}
                 onMenu={(row, position) => {
                   setSelection({ listing, name: entry.name });
                   setMenu({ listing, entry, row, position });
@@ -203,10 +231,20 @@ export function BrowseList({
           position={menu.position}
           onOpen={() => open(menu.listing, menu.entry)}
           onShowInFolder={() => actions?.showInFolder(childPath(menu.listing.path, menu.entry.name))}
+          onRename={menuRename && (() => menuRename(menu.row))}
           onClose={() => {
             setMenu(null);
             if (menu.row.isConnected) menu.row.focus({ preventScroll: true });
           }}
+        />
+      )}
+      {renameOpen && actions && (
+        <RenameFile
+          folder={renaming.listing.path}
+          name={renaming.entry.name}
+          row={renaming.row}
+          onRename={(folder, name, newName) => actions.renameFile(folder, name, newName)}
+          onClose={() => setRenaming(null)}
         />
       )}
     </>
@@ -221,6 +259,7 @@ function Row({
   onOpen,
   onMove,
   onShowInFolder,
+  onRename,
   onMenu,
 }: {
   entry: Entry;
@@ -231,6 +270,8 @@ function Row({
   onOpen: () => void;
   onMove: (key: MoveKey) => void;
   onShowInFolder: () => void;
+  /** Given for a file the session can rename: F2 opens the Rename form for this row. */
+  onRename?: (row: HTMLElement) => void;
   onMenu: (row: HTMLElement, position: MenuPosition) => void;
 }) {
   const Icon = ICONS[displayType(entry)];
@@ -245,7 +286,10 @@ function Row({
         event.currentTarget.focus();
       }}
       onDoubleClick={onOpen}
-      onKeyDown={(event) => rowKeyDown(event, { onOpen, onMove, onShowInFolder, onMenu })}
+      onKeyDown={(event) => {
+        const row = event.currentTarget;
+        rowKeyDown(event, { onOpen, onMove, onShowInFolder, onMenu, onRename: onRename && (() => onRename(row)) });
+      }}
       onContextMenu={(event) => rowContextMenu(event, onMenu)}
       // Scrolled into view below the sticky header, never under it.
       className={cn("h-row scroll-mt-10 cursor-default", selected ? "bg-selection" : "hover:bg-accent")}

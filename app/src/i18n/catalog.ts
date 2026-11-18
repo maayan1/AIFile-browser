@@ -46,12 +46,13 @@ export const catalog = {
   "column.size": "Size",
   "column.modified": "Modified",
 
-  // The browse list's context menu: only these two items, ever (read-only, C-4).
+  // The rows' context menu: Open and Show in folder, and Rename on a browse list file row (C-4).
   "menu.label": "File actions",
   "menu.open": "Open",
   "menu.showInFolder": "Show in folder",
+  "menu.rename": "Rename",
 
-  // New file (the one write: an empty file in the listed folder). Each error code a createFile can
+  // New file (a write: an empty file in the listed folder). Each error code a createFile can
   // end with has a `newFile.<code>` sentence; anything else is `newFile.failed`.
   "newFile.button": "New file",
   "newFile.dialog": "New file",
@@ -65,6 +66,21 @@ export const catalog = {
   "newFile.accessDenied": "You don't have permission to create files in this folder.",
   "newFile.folderUnavailable": "This folder can't be reached right now.",
   "newFile.failed": "The file couldn't be created. Try again.",
+
+  // Rename (a write: one file's new name, in its own folder). Each error code a renameFile can end
+  // with has a `rename.<code>` sentence; anything else is `rename.failed`.
+  "rename.dialog": "Rename",
+  "rename.name": "New name",
+  "rename.save": "Rename",
+  "rename.cancel": "Cancel",
+  "rename.invalidName":
+    "That name can't be used. Type one file name without slashes, colons or other special characters, and don't end it with a dot or a space.",
+  "rename.fileExists": "There's already a file or folder with that name here.",
+  "rename.fileNotFound": "This file isn't here anymore. It may have been moved, renamed or deleted.",
+  "rename.fileInUse": "Another program has this file open. Close it there and try again.",
+  "rename.accessDenied": "You don't have permission to rename this file.",
+  "rename.folderUnavailable": "This folder can't be reached right now.",
+  "rename.failed": "The file couldn't be renamed. Try again.",
 
   // Browse list states. The error keys are the engine's error codes.
   "browse.empty": "This folder is empty.",

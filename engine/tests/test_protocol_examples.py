@@ -66,6 +66,13 @@ def test_every_create_file_error_code_has_a_catalog_sentence() -> None:
         assert f'"newFile.{code}":' in catalog, code
 
 
+def test_every_rename_file_error_code_has_a_catalog_sentence() -> None:
+    # The UI words each code a renameFile can end with from the catalog: `rename.<code>`.
+    catalog = CATALOG.read_text(encoding="utf-8")
+    for code in ["invalidName", "fileExists", "fileNotFound", "fileInUse", "accessDenied", "folderUnavailable"]:
+        assert f'"rename.{code}":' in catalog, code
+
+
 def outcome_codes() -> set[str]:
     return set(load(PROTOCOL_DIR / "codes.json")["outcomeCodes"])
 

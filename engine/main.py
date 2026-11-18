@@ -30,6 +30,7 @@ from adapters.windows_fs import WindowsFileSystem
 from core.browse import FolderUnreadable, list_folder, show_in_folder
 from core.cancel import CancelToken
 from core.create import FILE_EXISTS, INVALID_NAME, CreateRefused, create_file
+from core.rename import FILE_IN_USE, FILE_NOT_FOUND, RenameRefused, rename_file
 from core.errors import (  # re-exported: the folder codes and their mapping live in core
     ACCESS_DENIED,
     DENIED_WINERRORS,
@@ -132,6 +133,23 @@ def create_file_handler(fs: FileSystemPort) -> ChannelHandler:
     return handle
 
 
+def rename_file_handler(fs: FileSystemPort) -> ChannelHandler:
+    """The `renameFile` handler: fileRenamed, or why not as a protocol code. Neither name is ever
+    logged (they are the user's words, like a search)."""
+
+    def handle(request: Message, token: CancelToken) -> Message:
+        try:
+            renamed = rename_file(fs, request["path"], request["newName"], token)
+        except RenameRefused as exc:
+            cause = exc.__cause__
+            log.info("renameFile: %s (winerror %s)", exc.code, getattr(cause, "winerror", None))
+            return error(request["id"], exc.code)
+        log.info("renameFile: renamed")
+        return {"id": request["id"], "type": "fileRenamed", **renamed}
+
+    return handle
+
+
 def preview_handler(fs: FileSystemPort, clock: Clock = time.monotonic) -> ChannelHandler:
     """The `preview` handler: previewReady, whose outcomeCode says why a file had no thumbnail.
     Only the path and the outcome are logged, never anything read from the file."""
@@ -180,6 +198,8 @@ def main() -> int:
     # Its own channel: creating a file must never cancel a listing or a search, nor they it, and a
     # write to a share that doesn't answer must not hold up the reader thread's pings.
     transport.register_channel("createFile", "createFile", create_file_handler(fs))
+    # Its own channel too, for the same reasons: never cancels, nor is cancelled by, other work.
+    transport.register_channel("renameFile", "renameFile", rename_file_handler(fs))
     # Its own channel, latest wins: holding an arrow key replaces each preview with the next, and
     # a preview never cancels a listing or a search, nor they it.
     transport.register_channel("preview", "preview", preview_handler(fs))

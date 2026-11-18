@@ -79,9 +79,11 @@ export interface RowHandlers {
   onMove: (key: MoveKey) => void;
   onShowInFolder: () => void;
   onMenu: (row: HTMLElement, position: MenuPosition) => void;
+  /** F2, as in File Explorer; given only where the row can be renamed. */
+  onRename?: () => void;
 }
 
-/** A row's keydown: Enter, the move keys, Shift+F10 or the Menu key, and Ctrl+Shift+E. */
+/** A row's keydown: Enter, the move keys, Shift+F10 or the Menu key, Ctrl+Shift+E, and F2 (with `onRename`). */
 export function rowKeyDown(event: KeyboardEvent<HTMLElement>, handlers: RowHandlers): void {
   const plain = !event.altKey && !event.ctrlKey && !event.metaKey;
   if (event.key === "Enter" && plain && !event.shiftKey) {
@@ -99,6 +101,9 @@ export function rowKeyDown(event: KeyboardEvent<HTMLElement>, handlers: RowHandl
     // By physical key, so it works on any keyboard layout (Hebrew too).
     event.preventDefault();
     if (!event.repeat) handlers.onShowInFolder();
+  } else if (event.key === "F2" && plain && !event.shiftKey && handlers.onRename) {
+    event.preventDefault();
+    if (!event.repeat) handlers.onRename();
   }
 }
 

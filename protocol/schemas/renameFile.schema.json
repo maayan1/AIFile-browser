@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RenameFile",
+  "description": "Request: give one existing file a new name in the folder it is already in. It never moves the file to another folder, never overwrites anything, never renames a folder and never changes the file's content. Its own channel, so it never cancels a listing or a search. The reply is fileRenamed, or an error: invalidName (newName empty, . or .., a path separator or other character Windows forbids, a trailing dot or space, a reserved device name such as CON, or longer than 255 characters), fileExists (another file or folder of that name, in any casing, is already there), fileNotFound (no file at path: it is gone, its folder is gone, or path names a folder), fileInUse (another program has the file open), accessDenied (the file or its folder can't be changed) or folderUnavailable (drive not ready, share unreachable). A new name that differs only in casing renames the file; the same name changes nothing and succeeds.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "renameFile" },
+    "path": { "description": "The file to rename: a listed folder's path joined with the file's name. Normalized by the engine as showInFolder's path is.", "type": "string", "minLength": 1 },
+    "newName": { "description": "The file's new name: one name, never a path. The engine checks it; the UI trims it first.", "type": "string" }
+  },
+  "required": ["id", "type", "path", "newName"],
+  "additionalProperties": false
+}

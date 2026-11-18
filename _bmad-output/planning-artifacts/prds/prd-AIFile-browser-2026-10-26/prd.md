@@ -345,7 +345,7 @@ The Preview Panel sits beside the file list and the Result List. When the user s
 | NFR-5 | Baseline PC | Windows 11 64-bit, 8 GB RAM, 4-core processor, no dedicated graphics or AI chip (GPU or NPU). Windows 11 is the only supported platform. |
 | NFR-6 | Resource use | While indexing, the app keeps the PC usable: background-priority work and **≤ 2 GB RAM** for the whole app. `[ASSUMPTION: RAM ceiling]` |
 | NFR-7 | Installer size | **≤ 1 GB**, including the Python runtime and the model. |
-| NFR-8 | Data safety | The app **never modifies, moves or deletes user files**. It only reads them, with one exception: New file creates a new, empty file (see C-4). A crash or power loss never leaves a corrupted Index. Worst case, the Index rebuilds itself. |
+| NFR-8 | Data safety | The app **never modifies, moves or deletes user files**. It only reads them, with two exceptions (see C-4): New file creates a new, empty file, and Rename gives one file a new name in its own folder. Neither ever changes a file's content. A crash or power loss never leaves a corrupted Index. Worst case, the Index rebuilds itself. |
 | NFR-9 | Local security | The backend accepts requests only from the app itself and is not reachable from other devices. Index data is stored in the current user's Windows profile (for example `%LOCALAPPDATA%`), not in a shared location. |
 | NFR-10 | Error handling | Every error the user can hit (access denied, unreadable file, invalid path, backend not responding) shows a plain-language message in the interface language, with no stack traces or error codes. If the backend stops, the app shows a message and recovers without losing the Index. |
 | NFR-11 | Accessibility | Every core action (browse, search, set Filters, open, show in folder) works with the keyboard alone. `[ASSUMPTION]` |
@@ -361,7 +361,8 @@ The Preview Panel sits beside the file list and the Result List. When the user s
 - **C-3. One AI model.** The MVP uses exactly one local embedding model. No generative models, OCR (optical character recognition) models or other AI models. Date Phrases (FR-14) are recognized by fixed rules.
   - If no model meets every constraint, they give way in this order. The license (NFR-12) and offline operation (C-2) never give way. Next is search quality (SM-1 ≥ 80%), then installer size (NFR-7), then speed (NFR-2, NFR-4).
 - **C-4. Read-only on user files.** See NFR-8. Any feature that writes to user files is outside the MVP.
-  - **Exception (2026-11-16): New file.** The top bar's New file button creates one new, empty file in the listed folder (the `createFile` request). It is the only write, and it stays narrow: the name must be a single valid file name (never a path), the file is created only if nothing with that name exists (it never overwrites), no missing folder is ever created, and nothing existing is modified, moved, renamed or deleted. The row menu stays Open and Show in folder only.
+  - **Exception (2026-11-16): New file.** The top bar's New file button creates one new, empty file in the listed folder (the `createFile` request). It stays narrow: the name must be a single valid file name (never a path), the file is created only if nothing with that name exists (it never overwrites), no missing folder is ever created, and nothing existing is modified, moved, renamed or deleted.
+  - **Exception (2026-11-17): Rename.** A file row's menu (and F2 on a file row) renames that one file in the folder it is in (the `renameFile` request). It stays as narrow as New file: files only, never a folder; the new name must be a single valid file name (never a path), so the file never moves to another folder; it never overwrites (another file or folder with that name, in any casing, refuses it); and the file's content, dates and permissions don't change. A file another program has open is refused, not forced. The search results' menu stays Open and Show in folder only.
 - **C-5. Technology stack (author decision).**
 
   | Layer | Choice |
@@ -382,7 +383,7 @@ The Preview Panel sits beside the file list and the Result List. When the user s
 
 These describe what the MVP deliberately is not. §8.2 says which of them may come later.
 
-- **Not a file manager.** The MVP does not move, rename, delete, copy, deduplicate or organize files.
+- **Not a file manager.** The MVP does not move, delete, copy, deduplicate or organize files. The only renaming is C-4's narrow Rename exception: one file, in its own folder.
 - **Not a chat assistant.** No conversation, follow-up questions, generated summaries or answers.
 - **Only fixed Date Phrases.** Only the Date Phrases in FR-14 are recognized. For any other date, the user sets the Date Filter by hand.
 - **Not cloud or network search.** No Google Drive, OneDrive, network shares or sync.
@@ -610,6 +611,11 @@ The author reviewed the UX design with the UX designer. These changes bring the 
 | Change | Reason | Where |
 |---|---|---|
 | The WebView2 runtime's own updater counts as Windows; connections from the app's WebView2 processes are counted, measured in Phase 1 and disabled by configuration | The architecture review found that WebView2 contacts Microsoft servers beyond SmartScreen. The author chose to keep the runtime updated by Windows rather than ship a fixed runtime that never gets security updates. | NFR-1 |
+
+### 12.12 Rename exception to C-4 (author, 2026-11-17)
+| Change | Reason | Where |
+|---|---|---|
+| New exception to C-4: Rename one file in its own folder, from a file row's menu or F2. Files only; never a folder, never another folder, never overwrites. | The author asked for Rename after New file shipped. It is kept as narrow as New file: no content change, no move, no overwrite. | C-4, NFR-8, §7 (Not a file manager) |
 
 ### 12.13 File thumbnail in the MVP (author, 2026-11-17)
 | Change | Reason | Where |

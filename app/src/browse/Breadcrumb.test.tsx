@@ -43,6 +43,7 @@ function fakeActions(): { [K in keyof BrowseActions]: Mock<BrowseActions[K]> } {
     reload: vi.fn<BrowseActions["reload"]>(),
     clearPathError: vi.fn<BrowseActions["clearPathError"]>(),
     createFile: vi.fn<BrowseActions["createFile"]>(),
+    renameFile: vi.fn<BrowseActions["renameFile"]>(),
   };
 }
 

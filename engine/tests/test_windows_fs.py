@@ -451,6 +451,80 @@ def test_create_file_in_a_folder_that_denies_adding_files_raises_permission_erro
     assert list(locked.iterdir()) == []
 
 
+# ----- rename_file: a file's new name, in its own folder (renameFile) -------------------------
+
+
+def deny_deleting(path: Path) -> None:
+    # D on a file is "delete": a rename needs it, reading the file doesn't.
+    subprocess.run(["icacls", str(path), "/deny", "*S-1-1-0:(D)"], check=True, capture_output=True)
+
+
+def test_rename_file_gives_a_file_a_hebrew_name_and_keeps_its_content(tmp_path: Path) -> None:
+    source = tmp_path / "notes.txt"
+    source.write_bytes(b"keep me")
+    WindowsFileSystem().rename_file(str(source), str(tmp_path / HEBREW_DOC))
+    assert [p.name for p in tmp_path.iterdir()] == [HEBREW_DOC]
+    assert (tmp_path / HEBREW_DOC).read_bytes() == b"keep me"
+
+
+def test_rename_file_renames_in_place_when_only_the_casing_changes(tmp_path: Path) -> None:
+    (tmp_path / "notes.txt").write_bytes(b"keep me")
+    WindowsFileSystem().rename_file(str(tmp_path / "notes.txt"), str(tmp_path / "Notes.TXT"))
+    assert [p.name for p in tmp_path.iterdir()] == ["Notes.TXT"]
+
+
+@pytest.mark.parametrize("taken", ["Other.txt", "OTHER.TXT", "Photos", "PHOTOS"])
+def test_rename_file_never_overwrites_another_item_in_any_casing(tmp_path: Path, taken: str) -> None:
+    (tmp_path / "notes.txt").write_bytes(b"mine")
+    (tmp_path / "Other.txt").write_bytes(b"theirs")
+    (tmp_path / "Photos").mkdir()
+    with pytest.raises(FileExistsError):
+        WindowsFileSystem().rename_file(str(tmp_path / "notes.txt"), str(tmp_path / taken))
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["Other.txt", "Photos", "notes.txt"]
+    assert (tmp_path / "notes.txt").read_bytes() == b"mine"
+    assert (tmp_path / "Other.txt").read_bytes() == b"theirs"
+
+
+def test_rename_file_never_renames_a_folder(tmp_path: Path) -> None:
+    (tmp_path / "Photos").mkdir()
+    with pytest.raises(IsADirectoryError):
+        WindowsFileSystem().rename_file(str(tmp_path / "Photos"), str(tmp_path / "Albums"))
+    assert [p.name for p in tmp_path.iterdir()] == ["Photos"]
+
+
+def test_rename_file_of_a_missing_file_or_a_relative_path_is_file_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(FileNotFoundError):
+        WindowsFileSystem().rename_file(str(tmp_path / "gone.txt"), str(tmp_path / "x.txt"))
+    (tmp_path / "notes.txt").write_bytes(b"")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        WindowsFileSystem().rename_file("notes.txt", "x.txt")
+    assert [p.name for p in tmp_path.iterdir()] == ["notes.txt"]
+
+
+def test_rename_file_of_a_file_another_program_has_open_fails_as_in_use(tmp_path: Path) -> None:
+    source = tmp_path / "notes.txt"
+    source.write_bytes(b"keep me")
+    # Python opens files without FILE_SHARE_DELETE, as most programs that edit a file do.
+    with open(source, "rb"), pytest.raises(PermissionError) as info:
+        WindowsFileSystem().rename_file(str(source), str(tmp_path / "x.txt"))
+    assert getattr(info.value, "winerror", None) == 32
+    assert [p.name for p in tmp_path.iterdir()] == ["notes.txt"]
+
+
+def test_rename_file_that_may_not_be_deleted_raises_permission_error(tmp_path: Path) -> None:
+    source = tmp_path / "notes.txt"
+    source.write_bytes(b"keep me")
+    deny_deleting(source)
+    try:
+        with pytest.raises(PermissionError) as info:
+            WindowsFileSystem().rename_file(str(source), str(tmp_path / "x.txt"))
+        assert not isinstance(info.value, FileExistsError)
+    finally:
+        allow_listing(source)
+    assert [p.name for p in tmp_path.iterdir()] == ["notes.txt"]
+
+
 # ----- stat and read_head: one item's entry, and a preview's capped read ----------------------
 
 

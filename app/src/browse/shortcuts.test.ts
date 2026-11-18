@@ -127,6 +127,7 @@ describe("useBrowseShortcuts", () => {
       reload: vi.fn(),
       clearPathError: vi.fn(),
       createFile: vi.fn(),
+      renameFile: vi.fn(),
     } satisfies BrowseActions;
   }
 

@@ -6,7 +6,9 @@
     "accessDenied",
     "folderUnavailable",
     "invalidName",
-    "fileExists"
+    "fileExists",
+    "fileNotFound",
+    "fileInUse"
   ],
   "outcomeCodes": [
     "noMatches"

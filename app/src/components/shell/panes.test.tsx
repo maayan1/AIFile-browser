@@ -61,6 +61,7 @@ function fakeActions(): BrowseActions {
     reload: vi.fn(),
     clearPathError: vi.fn(),
     createFile: vi.fn(),
+    renameFile: vi.fn(),
   };
 }
 
